@@ -173,6 +173,35 @@ export function useWarm(stops: Stop[], index: Index | null) {
   }, [sig, index]);
 }
 
+// A height that opens and folds on the card's spring: measured, moved in pixels, then left to its
+// content. (The 0fr/1fr grid trick did this with no measuring, but Safari sized those rows from
+// the thumbnail and cut their words off.)
+function Fold({ open, children }: { open: boolean; children: React.ReactNode }) {
+  const el = useRef<HTMLDivElement>(null);
+  const run = useRef<Animation | null>(null);
+  const first = useRef(true);
+  useLayoutEffect(() => {
+    const d = el.current;
+    if (!d) return;
+    if (first.current) { first.current = false; d.style.height = open ? "" : "0px"; return; }
+    const from = d.getBoundingClientRect().height; // where it is now, mid-motion included
+    run.current?.cancel();
+    d.style.height = open ? "" : "0px";
+    if (still()) return;
+    const to = open ? d.scrollHeight : 0;
+    run.current = d.animate([{ height: `${from}px` }, { height: `${to}px` }], { duration: OPEN.ms, easing: OPEN.ease });
+  }, [open]);
+  return <div ref={el} style={{ overflow: "hidden" }}>{children}</div>;
+}
+
+// a long question or last word, cut at a word near 160 characters: a fixed cut, so a row's height
+// comes from its words in every browser
+const short = (t: string, n = 160) => {
+  if (t.length <= n) return t;
+  const at = t.lastIndexOf(" ", n - 1);
+  return `${t.slice(0, at > n * 0.6 ? at : n - 1).replace(/[\s,;:.]+$/, "")}…`;
+};
+
 /** Everything waiting on you, in a card that grows out of the dock's key and folds back into it. */
 export function WaitList({ open, stops, index, focus, phone, onFocus, onDone }: {
   open: boolean; stops: Stop[]; index: Index; focus: string | null; phone: boolean;
@@ -254,6 +283,14 @@ export function WaitList({ open, stops, index, focus, phone, onFocus, onDone }: 
     if (b) setEdges({ up: b.scrollTop > 1, down: b.scrollTop + b.clientHeight < b.scrollHeight - 1 });
   };
   useLayoutEffect(measure, [shown, stops.length, focus]);
+  // and whenever the rows change height: one opening, one folding away
+  const rows = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!rows.current || typeof ResizeObserver === "undefined") return;
+    const o = new ResizeObserver(() => measure());
+    o.observe(rows.current);
+    return () => o.disconnect();
+  }, []);
 
   // an answer goes to the session through the relay, the row says so, then folds away. Where no
   // relay can reach a desktop session, the answer opens the session instead.
@@ -286,6 +323,7 @@ export function WaitList({ open, stops, index, focus, phone, onFocus, onDone }: 
     <div
       ref={frame}
       data-waitlist
+      data-chrome
       role="dialog"
       aria-label="Waiting on you"
       aria-hidden={!shown}
@@ -298,7 +336,8 @@ export function WaitList({ open, stops, index, focus, phone, onFocus, onDone }: 
       {/* the glass without its backdrop blur: at this thickness the blur barely shows, and Safari
           would redraw what's behind the card on every frame of its motion */}
       <div ref={card} className="glass thick relative overflow-hidden rounded-[24px]" style={{ boxShadow: RIM, backdropFilter: "none", WebkitBackdropFilter: "none" }}>
-      <div ref={body} onScroll={measure} onTransitionEnd={measure} className="overflow-y-auto p-2" style={{ maxHeight: `calc(100vh - ${phone ? 150 : 160}px)`, scrollbarWidth: "none", maskImage: fade, WebkitMaskImage: fade }}>
+      <div ref={body} onScroll={measure} className="overflow-y-auto p-2" style={{ maxHeight: `calc(100vh - ${phone ? 150 : 160}px)`, scrollbarWidth: "none", overscrollBehavior: "contain", maskImage: fade, WebkitMaskImage: fade }}>
+        <div ref={rows}>
         {stops.map((s) => {
           const on = focus === s.id;
           const gone = sent?.id === s.id;
@@ -309,15 +348,17 @@ export function WaitList({ open, stops, index, focus, phone, onFocus, onDone }: 
           const inner = "";
           return (
             // folding away: the row's height and its words go together
-            <div key={s.id} className="grid" style={{ gridTemplateRows: leaving === s.id ? "0fr" : "1fr", opacity: leaving === s.id ? 0 : 1, transition: `grid-template-rows ${OPEN.ms}ms ${OPEN.ease}, opacity 200ms ${EASE}` }}>
-              <div className="min-h-0 overflow-hidden">
+            <div key={s.id} style={{ opacity: leaving === s.id ? 0 : 1, transition: `opacity 200ms ${EASE}` }}>
+              <Fold open={leaving !== s.id}>
                 <div className="relative rounded-[16px] transition-colors duration-200" style={{ background: on ? "rgba(21,24,29,0.05)" : undefined }}>
                   <button
                     type="button"
                     aria-expanded={on}
                     onClick={() => onFocus(on ? null : s.id)}
-                    className={`grid w-full grid-cols-[44px_1fr] gap-3 rounded-[16px] px-2.5 py-2.5 text-left transition-colors duration-200 ${on ? "" : "hover:bg-[rgba(21,24,29,0.03)]"} ${inner}`}
+                    className={`block w-full rounded-[16px] px-2.5 py-2.5 text-left transition-colors duration-200 ${on ? "" : "hover:bg-[rgba(21,24,29,0.03)]"} ${inner}`}
                   >
+                    {/* the grid inside the button, not on it: Safari lays out a grid button its own way */}
+                    <span className="grid grid-cols-[44px_1fr] gap-3">
                     {/* corners concentric with the row: its 16, less the 10 it sits in */}
                     <span className="grid h-11 w-11 place-items-center overflow-hidden rounded-[6px] text-[var(--quiet)]" style={{ background: "var(--wall-deep)", boxShadow: pic ? "var(--shadow-tile)" : "inset 0 0 0 0.5px rgba(28,25,20,0.1)" }}>
                       {pic ? <img src={pic} alt="" draggable={false} className="h-full w-full object-cover object-top" /> : <Glyph name="comment" size={18} />}
@@ -328,7 +369,8 @@ export function WaitList({ open, stops, index, focus, phone, onFocus, onDone }: 
                         {/* open, the time gives way to a way into the session itself */}
                         <span className="type-mono shrink-0 text-[var(--quiet)] transition-opacity duration-200" style={{ opacity: on ? 0 : 1 }}>{when(s.at)}</span>
                       </span>
-                      <span className="mt-0.5 overflow-hidden text-[13px] leading-[1.4] tracking-[-0.004em] text-[var(--muted)] [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:4] [text-wrap:pretty]">{said(s)}</span>
+                      <span className="mt-0.5 block text-[13px] leading-[1.4] tracking-[-0.004em] text-[var(--muted)] [text-wrap:pretty]">{short(said(s))}</span>
+                    </span>
                     </span>
                   </button>
                   <a
@@ -343,8 +385,7 @@ export function WaitList({ open, stops, index, focus, phone, onFocus, onDone }: 
                     <Glyph name="open" size={14} />
                   </a>
                   {/* its answers, opening under the question: one door, the other answer a quiet word beneath */}
-                  <div className="grid" style={{ gridTemplateRows: on ? "1fr" : "0fr", transition: `grid-template-rows ${OPEN.ms}ms ${OPEN.ease}` }}>
-                    <div className="min-h-0 overflow-hidden">
+                  <Fold open={on}>
                       <div className="relative pb-3 pt-1.5" style={{ opacity: on ? 1 : 0, transition: `opacity 200ms ${EASE} ${on ? "80ms" : "0ms"}` }}>
                         <div className="flex flex-col items-center transition-opacity duration-200" style={{ opacity: gone ? 0 : 1 }} aria-hidden={gone}>
                           {first ? (
@@ -367,13 +408,13 @@ export function WaitList({ open, stops, index, focus, phone, onFocus, onDone }: 
                           {gone && <><span className="grid h-5 w-5 place-items-center rounded-full text-white" style={{ background: "var(--honey)" }}><Glyph name="done" size={11} /></span>Sent: {sent!.text}</>}
                         </div>
                       </div>
-                    </div>
-                  </div>
+                  </Fold>
                 </div>
-              </div>
+              </Fold>
             </div>
           );
         })}
+        </div>
       </div>
       </div>
     </div>

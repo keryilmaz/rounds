@@ -279,7 +279,7 @@ export default function App() {
     };
     const onGesture = (e: Event) => {
       e.preventDefault();
-      if (open) return;
+      if (open || (e.target as HTMLElement).closest?.("[data-chrome]")) return; // a pinch over the dock or the waiting card isn't for the canvas
       const g = e as Event & { scale: number; clientX: number; clientY: number };
       if (e.type === "gesturestart") { pinch = { z: camera.now.z }; touched.current = true; }
       else if (e.type === "gestureend") pinch = null;
