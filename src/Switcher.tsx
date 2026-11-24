@@ -144,6 +144,9 @@ export function Switcher({ open, clusters, index, stops, focus, onClose, onLand,
   const spotOf = (i: number) => (i < snap.top.length ? spots[0][i] : spots[1][i - snap.top.length]);
 
   const [sel, setSel] = useState(0);
+  // the fill glides only once you move it: opening, it is already on its idea, and rises with it
+  const [glide, setGlide] = useState(false);
+  const walk = (n: number) => { setGlide(true); setSel(n); };
   const [dc, setDc] = useState<string | null>(null); // the idea whose decision is open
   const [sent, setSent] = useState<Record<string, string>>({}); // answers given here, by session
   const [back, setBack] = useState<Idea | null>(null); // the idea you just went into
@@ -153,6 +156,7 @@ export function Switcher({ open, clusters, index, stops, focus, onClose, onLand,
   const root = useRef<HTMLDivElement>(null);
   const veil = useRef<HTMLDivElement>(null);
   const hush = useRef<HTMLDivElement>(null);
+  const pickEl = useRef<HTMLDivElement>(null);
   const runs = useRef<Animation[]>([]);
   const leaving = useRef(false);
 
@@ -171,21 +175,25 @@ export function Switcher({ open, clusters, index, stops, focus, onClose, onLand,
       const at = focus ? flat.findIndex((i) => i.stop?.id === focus) : -1;
       const start = at >= 0 ? at : 0;
       setSel(start);
+      setGlide(false);
       if (at >= 0) setTimeout(() => setDc(flat[at].key), still() ? 0 : 280);
       if (still()) return;
       runs.current.push(veil.current!.animate([{ opacity: 0 }, { opacity: 1 }], { duration: OPEN.ms, easing: OPEN.ease }));
-      ideas.forEach((n, i) => {
+      const rise = (n: HTMLElement, i: number) => {
         const row = i < snap.top.length ? 0 : 1;
         runs.current.push(n.animate([{ opacity: 0, translate: "0 24px", scale: "0.97" }, { opacity: 1, translate: "0 0", scale: "1" }],
           { duration: OPEN.ms, easing: OPEN.ease, delay: (1 - row) * 50 + Math.abs(i - start) * 20, fill: "backwards" }));
-      });
+      };
+      ideas.forEach(rise);
+      // the fill comes up with the idea it's on, not ahead of it
+      if (pickEl.current) rise(pickEl.current, start);
     } else {
       setDc(null);
       if (leaving.current) return; // going into an idea runs its own way out
       const end = () => { el.style.visibility = "hidden"; setShown(false); };
       if (still()) { end(); return; }
       const a = veil.current!.animate([{ opacity: 1 }, { opacity: 0 }], { duration: CLOSE.ms, easing: CLOSE.ease, fill: "forwards" });
-      for (const n of ideas) runs.current.push(n.animate([{ opacity: 1 }, { opacity: 0, translate: "0 12px" }], { duration: CLOSE.ms * 0.8, easing: CLOSE.ease, fill: "forwards" }));
+      for (const n of [...ideas, pickEl.current].filter((n): n is HTMLElement => !!n)) runs.current.push(n.animate([{ opacity: 1 }, { opacity: 0, translate: "0 12px" }], { duration: CLOSE.ms * 0.8, easing: CLOSE.ease, fill: "forwards" }));
       runs.current.push(a);
       a.onfinish = end;
     }
@@ -253,15 +261,15 @@ export function Switcher({ open, clusters, index, stops, focus, onClose, onLand,
       }
       const row = sel < snap.top.length ? 0 : 1;
       const inRow = row === 0 ? snap.top : snap.rest, j = row === 0 ? sel : sel - snap.top.length, base = row === 0 ? 0 : snap.top.length;
-      if (e.key === "ArrowRight" && j + 1 < inRow.length) { e.preventDefault(); setSel(base + j + 1); }
-      else if (e.key === "ArrowLeft" && j > 0) { e.preventDefault(); setSel(base + j - 1); }
+      if (e.key === "ArrowRight" && j + 1 < inRow.length) { e.preventDefault(); walk(base + j + 1); }
+      else if (e.key === "ArrowLeft" && j > 0) { e.preventDefault(); walk(base + j - 1); }
       else if ((e.key === "ArrowDown" && row === 0 && snap.rest.length) || (e.key === "ArrowUp" && row === 1)) {
         e.preventDefault();
         const here = spotOf(sel), cx = here.x + here.slot / 2;
         const to = row === 0 ? 1 : 0, other = spots[to], b2 = to === 0 ? 0 : snap.top.length;
         let best = 0;
         other.forEach((s, n) => { if (Math.abs(s.x + s.slot / 2 - cx) < Math.abs(other[best].x + other[best].slot / 2 - cx)) best = n; });
-        setSel(b2 + best);
+        walk(b2 + best);
       } else if (e.key === "Enter" && cur) {
         e.preventDefault();
         if (cur.stop && !sent[cur.stop.id]) setDc(cur.key); else go(cur);
@@ -306,7 +314,7 @@ export function Switcher({ open, clusters, index, stops, focus, onClose, onLand,
         onClickCapture={(e) => { if (eat.current) { eat.current = false; e.stopPropagation(); } }}
         onClick={(e) => { if (!(e.target as HTMLElement).closest("[data-idea], [data-decision]")) onClose(); }}>
         <div ref={veil} className="sw-veil absolute inset-0" />
-        {pr && <div className="sw-pick" style={{ transform: `translate3d(${pr.x}px, ${pr.y}px, 0)`, width: pr.w, height: pr.h, opacity: dc ? 0 : 1 }} />}
+        {pr && <div ref={pickEl} className="sw-pick" style={{ transform: `translate3d(${pr.x}px, ${pr.y}px, 0)`, width: pr.w, height: pr.h, opacity: dc ? 0 : 1, transition: glide ? undefined : "opacity 200ms var(--ease-out)" }} />}
         {flat.map((i, n) => {
           const s = spotOf(n);
           if (!s) return null;
@@ -315,7 +323,7 @@ export function Switcher({ open, clusters, index, stops, focus, onClose, onLand,
           const forward = dc === i.key || dcShown === i;
           return (
             <div key={i.key} data-idea={i.key} className="sw-idea absolute left-0 top-0" style={{ transform: `translate3d(${s.x}px, ${s.y}px, 0)`, width: s.slot, zIndex: forward ? 5 : undefined }}
-              onMouseEnter={() => { if (!dc) setSel(n); }}
+              onMouseEnter={() => { if (!dc) walk(n); }}
               onClick={(e) => { if ((e.target as HTMLElement).closest("[data-ask]")) return; if (dc) { setDc(null); return; } setSel(n); go(i); }}>
               <div className="relative" style={{ width: s.w }}>
                 <div data-scr className={`sw-scr ${i.pic ? "" : "words"}`} style={{ width: s.w, height: s.h }}>
@@ -326,7 +334,7 @@ export function Switcher({ open, clusters, index, stops, focus, onClose, onLand,
                     // the card that grows out of it starts as exactly this badge, so it steps aside at once
                     // and is back the moment the card has folded into it
                     style={{ opacity: answered || dcShown === i ? 0 : 1, scale: answered ? "0" : "1", transition: "scale 280ms var(--ease-out)" }}
-                    onClick={(e) => { e.stopPropagation(); setSel(n); setDc(dc === i.key ? null : i.key); }}>
+                    onClick={(e) => { e.stopPropagation(); walk(n); setDc(dc === i.key ? null : i.key); }}>
                     {(i.stop.ask ? 1 : 0) + (i.stop.more || 0) || 1}
                   </button>
                 )}
