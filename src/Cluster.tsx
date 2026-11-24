@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { clean, img, thumb, threadLink, when, type Page, type Thread } from "./data";
-import { COL_GAP, type Cluster, type FileRow, type Group, type PlacedItem } from "./layout";
+import { COL_GAP, type Ask, type Cluster, type FileRow, type Group, type PlacedItem } from "./layout";
 import { Glyph } from "./glyphs";
 
 const dayKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -60,11 +60,12 @@ function ActivityField({ threads, pages, days }: { threads: Thread[]; pages: Pag
   return <div className="relative" style={{ width: x - (PITCH - BLOCK), height: 3 * BLOCK + 6 }}>{cells}</div>;
 }
 
-export const ClusterView = memo(function ClusterView({ c, cap, far, near, live, dimmed, openKey, noted, fresh, threadsAll, onFocus, onHover, onOpen, onTitle, onFile, onSession }: {
+export const ClusterView = memo(function ClusterView({ c, cap, far, near, live, dimmed, openKey, noted, fresh, threadsAll, onFocus, onHover, onOpen, onTitle, onFile, onSession, waitingOnly = false, onAsk }: {
   c: Cluster; cap: number; far: boolean; near: boolean; live: string; dimmed: boolean; openKey?: string;
   noted: Set<string>; fresh: Set<string>; threadsAll: Thread[];
   onFocus: (c: Cluster) => void; onHover: (key: string, on: boolean) => void; onOpen: (g: Group, i: number, el: HTMLElement) => void;
   onTitle: (g: Group) => boolean; onFile: (sheet: FilesSheet, i: number, el: HTMLElement) => void; onSession: (id: string) => void;
+  waitingOnly?: boolean; onAsk?: (id: string) => void; // the dock key's card is open; a mark was pressed
 }) {
   const lit = useMemo(() => new Set(live.split(" ")), [live]);
   const projectThreads = useMemo(() => threadsAll.filter((t) => t.project === c.key), [threadsAll, c.key]);
@@ -72,6 +73,8 @@ export const ClusterView = memo(function ClusterView({ c, cap, far, near, live, 
   // writes --z on the name itself (wb-z), so this follows zoom with no render.
   // one size for every name: as large as the tightest column allows
   const size = `min(${cap}px, max(56px, calc(40px / var(--z, 1))))`;
+  // with the dock key's card open, what isn't waiting on you steps back
+  const waits = c.groups.some((g) => g.ask);
   return (
     <div
       style={{
@@ -81,7 +84,7 @@ export const ClusterView = memo(function ClusterView({ c, cap, far, near, live, 
       }}
     >
       <Layer>
-        <div data-flip={`c-${c.key}`} className="absolute" style={{ left: c.x, top: c.y, width: c.w, height: 96 }}>
+        <div data-flip={`c-${c.key}`} className="absolute" style={{ left: c.x, top: c.y, width: c.w, height: 96, ...away(waitingOnly && !waits) }}>
           <button
             className="wb-z type-project absolute bottom-0 left-[-3px] flex items-baseline whitespace-nowrap text-left"
             style={{ fontSize: size, maxWidth: c.w + COL_GAP * 0.6 }}
@@ -108,6 +111,7 @@ export const ClusterView = memo(function ClusterView({ c, cap, far, near, live, 
 
       {c.groups.map((g) => (
         <Layer key={g.id}>
+          <div style={away(waitingOnly && !g.ask)}>
           <GroupTitle g={g} far={far} colW={c.w} onTitle={onTitle} />
           {g.items.map((it, i) => (
             it.kind === "note"
@@ -116,6 +120,14 @@ export const ClusterView = memo(function ClusterView({ c, cap, far, near, live, 
               ? <Files key={it.key} it={it} far={far} onFile={onFile} onSession={onSession} />
               : <Screen key={it.key} it={it} far={far} near={near} live={lit.has(g.id)} hidden={openKey === it.key} noted={noted.has(it.kind === "page" ? it.page.id : `shot-${it.shot.hash}`)} fresh={it.kind === "page" && fresh.has(it.page.id)} label={g.title} onOpen={(el) => onOpen(g, i, el)} />
           ))}
+          {g.ask && (() => {
+            // on its newest screen's corner, where the note badge sits; when a note holds it, just inside
+            const it = g.items.find((x) => x.kind === "shot" || x.kind === "page");
+            if (!it) return null;
+            const taken = it.kind === "page" ? noted.has(it.page.id) : it.kind === "shot" && noted.has(`shot-${it.shot.hash}`);
+            return <WaitMark id={g.ask.id} title={g.ask.title} x={it.x + it.dw - (taken ? 38 : 4)} y={it.y + 4} onAsk={onAsk} />;
+          })()}
+          </div>
         </Layer>
       ))}
 
@@ -128,7 +140,7 @@ export const ClusterView = memo(function ClusterView({ c, cap, far, near, live, 
             rel="noreferrer"
             data-flip={`t-${t.id}`}
             className="group absolute flex items-center gap-2.5"
-            style={{ left: x, top: y, width: Math.min(c.w, 972), height: 40, opacity: far ? 0 : 1, pointerEvents: far ? "none" : "auto", transition: "opacity 240ms var(--ease-out)" }}
+            style={{ left: x, top: y, width: Math.min(c.w, 972), height: 40, opacity: far ? 0 : 1, pointerEvents: far ? "none" : "auto", transition: "opacity 240ms var(--ease-out)", ...(waitingOnly && !far ? away(true) : {}) }}
             onPointerDown={(e) => e.stopPropagation()}
           >
             <Glyph name="comment" size={15} className="shrink-0 text-[var(--quiet)] transition-colors duration-200 group-hover:text-[var(--ink)]" />
@@ -142,6 +154,48 @@ export const ClusterView = memo(function ClusterView({ c, cap, far, near, live, 
     </div>
   );
 });
+
+// The notification on a screen that's waiting on you. The note badge's
+// sibling, at the same corner: where that one is glass with an accent glyph, this one is the
+// accent itself with the session glyph in white. Close in it's 28 points on the canvas, like the
+// note badge; far out it holds 18 on screen, so the whole canvas still shows which screens wait.
+function WaitMark({ id, title, x, y, onAsk }: { id: string; title: string; x: number; y: number; onAsk?: (id: string) => void }) {
+  const size = "max(28px, calc(18px / var(--z, 1)))";
+  const k = "min(var(--z, 1), 1)"; // ring and shadow hold their size on screen far out, like the mark
+  return (
+    <button
+      type="button"
+      data-wait={id}
+      aria-label={`${clean(title)} is waiting on you`}
+      className="wb-z group absolute grid place-items-center rounded-full outline-none before:absolute before:inset-[-25%] before:content-['']"
+      style={{ left: x, top: y, width: size, height: size, translate: "-50% -50%" }}
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={() => onAsk?.(id)}
+    >
+      <span
+        className="grid h-full w-full place-items-center rounded-full text-white transition-transform duration-200 [transition-timing-function:var(--ease-out)] group-hover:scale-110 group-active:scale-95"
+        style={{
+          background: "var(--honey)",
+          boxShadow: `0 0 0 calc(1.5px / ${k}) var(--wall), 0 calc(1px / ${k}) calc(2px / ${k}) rgba(20,18,15,0.14), 0 calc(6px / ${k}) calc(14px / ${k}) calc(-6px / ${k}) rgba(20,18,15,0.3)`,
+        }}
+      >
+        <Glyph name="comment" size={16} className="h-[54%] w-[54%]" />
+      </span>
+      {/* who's asking, beside the mark (above it would cross the group's title), in the dock's tip
+          glass, 13 points on screen whatever the zoom; after a beat, like the dock's */}
+      <span
+        className="glass thick pointer-events-none absolute whitespace-nowrap rounded-full font-[520] tracking-[-0.005em] text-[var(--ink)] opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-hover:delay-300 group-focus-visible:opacity-100"
+        style={{ fontSize: "calc(13px / var(--z, 1))", lineHeight: "1.2", padding: "0.5em 0.9em", left: "calc(100% + 0.5em)", top: "50%", translate: "0 -50%" }}
+      >
+        {clean(title)}
+      </span>
+    </button>
+  );
+}
+// stepping back while the dock key's card is open: there, but out of the way. Opacity alone: a blur on every
+// group is a filtered layer per group, which Safari pays for on every frame of a pan, and at 10%
+// the blur barely showed
+const away = (on: boolean): React.CSSProperties => ({ opacity: on ? 0.1 : 1, transition: "opacity 420ms var(--ease-out)" });
 
 // In Safari far out, each project's name, each group and each project's thread lines are a layer
 // of their own (styles.css says why). Anywhere else this div does nothing.

@@ -161,6 +161,8 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 :focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 /* the composer's caret is its focus */
 textarea:focus-visible, input:focus-visible { outline: none; }
+/* a waiting row (Waiting.tsx) clips anything outside it, so its outline draws just inside */
+[data-waitlist] button[aria-expanded]:focus-visible { outline-offset: -3px; }
 ::selection { background: var(--honey); color: white; }
 
 .type-project { font-family: var(--title-font, var(--font-sans)); font-weight: var(--title-weight, 650); letter-spacing: var(--title-track, -0.045em); line-height: 0.92; }

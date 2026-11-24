@@ -14,6 +14,7 @@ import { TimeRail } from "./TimeRail";
 import { Search, type Hit } from "./Search";
 import { ShotStage, type ShotOpening } from "./ShotStage";
 import { Empty } from "./Empty";
+import { WaitKey, WaitList, listBox, narrow, useStops, useWaiting, type Stop } from "./Waiting";
 
 // The day in two tones: what you'd call it, then the date.
 function dayName(d: Date): [string, string] {
@@ -99,6 +100,11 @@ export default function App() {
   const anchor = useRef<{ key: string; x: number; y: number } | null>(null);
   const outgoing = useRef<HTMLDivElement>(null);
   const [seen, setSeen] = useState(readSeen);
+  // What's waiting on you (Waiting.tsx): marked on its screens, and listed in the dock key's card
+  const stops = useStops();
+  const wait = useWaiting(stops);
+  const [listOpen, setListOpen] = useState(false);
+  const [waitFocus, setWaitFocus] = useState<string | null>(null); // the row open in the card
   const [far, setFar] = useState(true);
   const [near, setNear] = useState(false);
   const [view, setView] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
@@ -156,7 +162,7 @@ export default function App() {
     pages: index.pages.filter((p) => p.thread === chat),
     changed: index.changed?.filter((c) => c.thread === chat),
   }), [index, chat]);
-  const world = useMemo(() => (shown && index ? layout(shown, asOf, !!chat, index) : null), [shown, index, asOf, chat]);
+  const world = useMemo(() => (shown && index ? layout(shown, asOf, !!chat, index, wait.marks) : null), [shown, index, asOf, chat, wait.marks]);
   useLayoutEffect(() => {
     if (!SPLITS || !world) return;
     let area = 0;
@@ -446,6 +452,70 @@ export default function App() {
     touched.current = true;
     camera.glide(groupView(g));
   };
+  // A row opened in the dock key's card (or a mark pressed on a screen) brings that session's
+  // marked screens into the part of the window the card leaves free, and lights them
+  const showWaiting = (id: string) => {
+    const g = world?.clusters.flatMap((c) => c.groups).find((g) => g.ask?.id === id);
+    if (!g) return;
+    touched.current = true;
+    const box = listBox(narrow());
+    if (narrow()) {
+      // above the card
+      const lh = Math.max(200, box.top - 24);
+      const z = Math.min(1.1, (innerWidth - 48) / g.w, (lh - 72) / g.h);
+      camera.glide({ z, x: innerWidth / 2 - (g.x + g.w / 2) * z, y: 24 + (lh - g.h * z) / 2 - g.y * z });
+    } else {
+      // beside it: left of the card when it sits right of the middle, else right of it
+      const right = box.left + box.w / 2 > innerWidth / 2;
+      const x0 = right ? 0 : box.left + box.w, x1 = right ? box.left : innerWidth;
+      const lw = x1 - x0, lh = innerHeight - 100;
+      const z = Math.min(1.1, (lw - 160) / Math.max(g.w, 640), (lh - 200) / g.h);
+      camera.glide({ z, x: x0 + lw / 2 - (g.x + g.w / 2) * z, y: (lh - g.h * z) / 2 + 16 - g.y * z });
+    }
+    setLit(g.id);
+  };
+  // on a phone the work goes above the card, so it waits for the card to finish growing
+  const focusRow = (id: string | null) => {
+    setWaitFocus(id);
+    if (id) setTimeout(() => showRef.current(id), narrow() ? 340 : 0);
+  };
+  // a mark on a screen opens the card at its row
+  const onAsk = useCallback((id: string) => { setListOpen(true); setWaitFocus(id); setTimeout(() => showRef.current(id), narrow() ? 420 : 0); }, []);
+  const showRef = useRef(showWaiting);
+  showRef.current = showWaiting;
+  const answered = (s: Stop) => {
+    wait.finish(s);
+    if (waitFocus === s.id) setWaitFocus(null);
+  };
+  const toggleList = () => { setListOpen((o) => !o); setWaitFocus(null); };
+  // W opens and closes the card, as T does the timeline
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => {
+      if ((e.key !== "w" && e.key !== "W") || e.metaKey || e.ctrlKey || e.altKey || typing(e) || searching || !wait.waiting.length) return;
+      e.preventDefault();
+      setListOpen((o) => !o);
+      setWaitFocus(null);
+    };
+    addEventListener("keydown", k);
+    return () => removeEventListener("keydown", k);
+  }, [searching, wait.waiting.length]);
+  // nothing left waiting: the card has nothing to hold
+  useEffect(() => { if (listOpen && stops && !wait.waiting.length) setListOpen(false); }, [listOpen, stops, wait.waiting.length]);
+  // Esc puts the card away; so does a press anywhere but the card, the dock or a mark
+  useEffect(() => {
+    if (!listOpen || searching) return;
+    // Esc puts it away and gives focus back to the key it came from
+    const key = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); setListOpen(false); setWaitFocus(null); document.querySelector<HTMLElement>("[data-waitkey]")?.focus({ preventScroll: true }); } };
+    const down = (e: PointerEvent) => {
+      const t = e.target as HTMLElement;
+      if (t.closest("[data-waitlist]") || t.closest(".dock") || t.closest("[data-wait]")) return;
+      setListOpen(false);
+      setWaitFocus(null);
+    };
+    addEventListener("keydown", key, true);
+    addEventListener("pointerdown", down, true);
+    return () => { removeEventListener("keydown", key, true); removeEventListener("pointerdown", down, true); };
+  }, [listOpen, searching]);
 
   // A search pick: go back to the day it lived in if today's canvas no longer holds it, then
   // fly to its group and light it.
@@ -860,6 +930,8 @@ export default function App() {
             onTitle={onTitle}
             onFile={onFile}
             onSession={onSession}
+            waitingOnly={listOpen}
+            onAsk={onAsk}
           />
         ))}
         {/* the project a drop would join */}
@@ -941,6 +1013,7 @@ export default function App() {
           onSearch={() => setSearching(true)}
           session={chat ? clean(index.threads.find((t) => t.id === chat)?.title || "") || "Session" : null}
           onAll={() => showSession(null)}
+          inline={wait.waiting.length ? <WaitKey n={wait.waiting.length} on={listOpen} onToggle={toggleList} /> : undefined}
         />
       )}
       {index && (
@@ -961,6 +1034,7 @@ export default function App() {
           {dropping.name}
         </div>
       )}
+      {index && <WaitList open={listOpen && wait.waiting.length > 0} stops={wait.waiting} index={index} focus={waitFocus} phone={narrow()} onFocus={focusRow} onDone={answered} />}
       {searching && index && <Search index={index} onPick={find} onClose={() => setSearching(false)} />}
 
       {shots && index && (

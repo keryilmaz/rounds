@@ -29,6 +29,9 @@ const MAX_ROWS = 2; // past this a group folds; the rest is a step away on the s
  *  the same file around the same time, newest first. */
 export type FileRow = { repo: string; file: string; add: number; del: number; last: number; also: { id: string; title: string }[] };
 
+/** A session waiting on you: what it asked (or said last, when it asked in prose) and the answers it offered. */
+export type Ask = { id: string; title: string; project: string; at: number; recap: string; ask: string; more: number; answers: string[] };
+
 export type Item =
   | { kind: "shot"; key: string; shot: Shot; before?: Shot; set: string; thread: string | null; w: number; h: number }
   | { kind: "note"; key: string; title: string; commits: Commit[]; files: string[]; at: number; w: number; h: number }
@@ -44,6 +47,7 @@ export type Group = {
   x: number; y: number; w: number; h: number;
   items: PlacedItem[]; // only what lies on the canvas
   all: Item[]; // everything in the group, for the stage
+  ask?: Ask; // its session is waiting on you, and this is what it asked
 };
 export type Cluster = {
   key: string;
@@ -127,7 +131,7 @@ function filesBy(index: Index, every: Index, start: number, end: number) {
 // alone: what was made on it, and the sessions that ran. With `all`, nothing ages out and no
 // project stops at ten groups: one session's whole history. `every` is the whole canvas when
 // `index` is one session's part of it: who else changed a file.
-export function layout(index: Index, asOf: number | null = null, all = false, every: Index = index): { clusters: Cluster[]; w: number; h: number; nameCap: number } {
+export function layout(index: Index, asOf: number | null = null, all = false, every: Index = index, marks?: Map<string, Ask>): { clusters: Cluster[]; w: number; h: number; nameCap: number } {
   const end = asOf ?? Date.now();
   const day = asOf != null && !all;
   const start = all ? -Infinity : day ? new Date(end).setHours(0, 0, 0, 0) : end - WINDOW;
@@ -135,7 +139,7 @@ export function layout(index: Index, asOf: number | null = null, all = false, ev
   const threadById = new Map(index.threads.map((t) => [t.id, t]));
   // A topic gathers every send filed under it, across threads and days; a send no topic
   // holds yet stays its own sitting, merged with sends from its thread close in time.
-  type G = { id: string; thread: string | null; first: number; last: number; caption: string; topic: boolean; sets: ShotSet[]; items: Item[] };
+  type G = { id: string; thread: string | null; first: number; last: number; caption: string; topic: boolean; sets: ShotSet[]; items: Item[]; ask?: Ask };
 
   const proj = Object.keys(index.projects).map((key) => {
     const topicOf = new Map<string, Topic>();
@@ -208,6 +212,16 @@ export function layout(index: Index, asOf: number | null = null, all = false, ev
     g.items.push({ kind: "files", key: `${g.id}-files-${t}`, thread: t, title: clean(th?.title || ""), rows, w: 520, h: 325 });
   }
 
+  // A session waiting on you marks its newest screens (or page) where they already sit; the canvas
+  // keeps its order. A session with nothing on the canvas is only in the dock key's card.
+  if (marks && !day) for (const [t, a] of marks) {
+    let g: G | undefined;
+    const rank = (x: G) => (x.items.some((it) => it.kind === "shot") ? 2 : x.items.some((it) => it.kind === "page") ? 1 : 0);
+    const has = (x: G) => x.thread === t || x.sets.some((s) => s.thread === t) || x.items.some((it) => it.kind === "page" && it.page.thread === t);
+    for (const p of proj) for (const x of p.groups) if (!x.ask && rank(x) && has(x) && (!g || rank(x) > rank(g) || (rank(x) === rank(g) && x.last > g.last))) g = x;
+    if (g) g.ask = a;
+  }
+
   const raw = proj.map(({ key, groups }) => {
     const threads = index.threads
       .filter((t) => t.project === key && !t.archived && !t.gone && (day ? !!t.days?.[today] : t.at <= end + 864e5 && (all || end - t.at < WINDOW)))
@@ -247,6 +261,7 @@ export function layout(index: Index, asOf: number | null = null, all = false, ev
         x: cx, y, w, h,
         items: items.map((it) => ({ ...it, x: cx + it.x, y: y + it.y })),
         all: g.items,
+        ...(g.ask ? { ask: g.ask } : {}),
       };
       y += h + GROUP_GAP;
       return out;

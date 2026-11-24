@@ -12,6 +12,7 @@ import { pastPushes, importPushes } from "./history.mjs";
 import { applyMoves, fileTopics, filePostTopics, loadTopics } from "./topics.mjs";
 import { POSTS, projects, loadConfig } from "./config.mjs";
 import { watchReleases, versionState, runUpdate, handOver } from "./updates.mjs";
+import { waiting } from "./waiting.mjs";
 
 const SHOTS = path.join(DATA, "shots");
 const SIZED = path.join(DATA, "sized");
@@ -300,6 +301,22 @@ export async function handle(req, res, next) {
             const all = applyMoves({ ...idx, sets: [...(idx.sets || []), ...added.sets] }, topics);
             // previews: whether page previews (and the page compare drawn from them) can be made here
             return json(res, { ...all, pages: [...idx.pages, ...added.pages], topics: topics.projects, comments: comments(idx), previews: !!previews() });
+          }
+          if (p === "/api/waiting") return json(res, waiting());
+          // An answer from the dock key's card, carried like a note: with the relay on it lands in the
+          // inbox and the relay session hands it to the session that asked. Without it nothing can
+          // reach a desktop session, and the card opens the session instead.
+          if (p === "/api/answer" && req.method === "POST") {
+            const a = await body(req);
+            if (!/^local_[\w-]+$/.test(a.thread || "") || !String(a.text || "").trim()) return json(res, { error: "bad" }, 400);
+            if (!loadConfig().relay) return json(res, { relay: false });
+            const id = crypto.randomUUID().slice(0, 8);
+            fs.mkdirSync(INBOX, { recursive: true });
+            fs.writeFileSync(path.join(INBOX, `${id}.json`), JSON.stringify({
+              id, kind: "answer", thread: a.thread, threadTitle: a.title || null,
+              question: String(a.question || "").slice(0, 600), text: String(a.text).trim().slice(0, 600), at: Date.now(),
+            }, null, 1));
+            return json(res, { relay: true, id });
           }
           if (p === "/api/comments" && req.method === "GET") return json(res, comments());
           // one session's changes to one file, in order: /api/edits/<thread>?repo=…&file=…
