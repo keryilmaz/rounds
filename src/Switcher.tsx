@@ -16,7 +16,7 @@ import { DecisionCard } from "./Decision";
 type Rect = { x: number; y: number; w: number; h: number };
 export type Idea = {
   key: string; title: string; project: string; at: number; line: string;
-  pic: { src: string; ar: number } | null;
+  pic: { src: string; ar: number; key: string } | null; // key: that screen on the canvas
   words: string | null; // no screen: its own words stand in
   group: Group | null; stop: Stop | null; session: string | null;
 };
@@ -53,10 +53,10 @@ export function ideasOf(clusters: Cluster[], index: Index, stops: Stop[], now = 
     const shots = g.all.filter((it) => it.kind === "shot");
     if (shots.length) {
       const best = shots.reduce((a, b) => ((setAt.get(b.kind === "shot" ? b.set : "") || 0) > (setAt.get(a.kind === "shot" ? a.set : "") || 0) ? b : a));
-      if (best.kind === "shot") pic = { src: img(best.shot, 960), ar: best.shot.w / best.shot.h };
+      if (best.kind === "shot") pic = { src: img(best.shot, 960), ar: best.shot.w / best.shot.h, key: best.key };
     } else {
       const pg = g.all.find((it) => it.kind === "page");
-      if (pg && pg.kind === "page") pic = { src: thumb(pg.hash), ar: pg.w / pg.h };
+      if (pg && pg.kind === "page") pic = { src: thumb(pg.hash), ar: pg.w / pg.h, key: pg.key };
     }
     const s = g.thread ? session.get(g.thread) : null;
     let stop = (g.ask && stopOf.get(g.ask.id)) || (s && stopOf.get(s.id)) || null;
@@ -124,8 +124,8 @@ const still = () => typeof matchMedia !== "undefined" && matchMedia("(prefers-re
 export function Switcher({ open, clusters, index, stops, focus, onClose, onLand, onDone }: {
   open: boolean; clusters: Cluster[]; index: Index; stops: Stop[]; focus: string | null;
   onClose: () => void;
-  /** go to a group: the camera there at once, and where its screens now sit in the window */
-  onLand: (g: Group) => Rect | null;
+  /** go to a group: the camera there at once */
+  onLand: (g: Group) => void;
   /** answered here; told once the switcher closes, so the canvas lays out again only then */
   onDone: (s: Stop) => void;
 }) {
@@ -165,6 +165,8 @@ export function Switcher({ open, clusters, index, stops, focus, onClose, onLand,
   useLayoutEffect(() => {
     const el = root.current;
     if (!shown || !el) return;
+    // going into an idea runs its own way out (go), and leaves it for the next opening to put away
+    if (!open && leaving.current) { setDc(null); return; }
     for (const a of runs.current) a.cancel();
     runs.current = [];
     const ideas = [...el.querySelectorAll<HTMLElement>("[data-idea]")];
@@ -189,7 +191,6 @@ export function Switcher({ open, clusters, index, stops, focus, onClose, onLand,
       if (pickEl.current) rise(pickEl.current, start);
     } else {
       setDc(null);
-      if (leaving.current) return; // going into an idea runs its own way out
       const end = () => { el.style.visibility = "hidden"; setShown(false); };
       if (still()) { end(); return; }
       const a = veil.current!.animate([{ opacity: 1 }, { opacity: 0 }], { duration: CLOSE.ms, easing: CLOSE.ease, fill: "forwards" });
@@ -216,7 +217,8 @@ export function Switcher({ open, clusters, index, stops, focus, onClose, onLand,
     setTimeout(() => setSent((m) => ({ ...m, [i.stop!.id]: text })), still() ? 0 : CLOSE.ms);
   };
 
-  // going in: paper over the canvas, the camera cut to the group under it, its screen settling into place
+  // going in: paper over the canvas, the camera cut to the group under it, and the screen you
+  // picked settles onto its own place among the group's screens, where the real one takes over
   const go = (i: Idea) => {
     if (!i.group) { if (i.session) location.href = threadLink(i.session); return; }
     const el = root.current?.querySelector<HTMLElement>(`[data-idea="${i.key}"] [data-scr]`);
@@ -225,21 +227,47 @@ export function Switcher({ open, clusters, index, stops, focus, onClose, onLand,
     setDc(null);
     const h = hush.current!, v = veil.current!;
     const fly = from && el ? el.cloneNode(true) as HTMLElement : null;
-    if (fly && from) { Object.assign(fly.style, { position: "fixed", left: `${from.left}px`, top: `${from.top}px`, width: `${from.width}px`, height: `${from.height}px`, margin: "0", zIndex: "62", transformOrigin: "0 0" }); document.body.appendChild(fly); }
-    for (const n of root.current!.querySelectorAll<HTMLElement>("[data-idea]")) n.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 180, fill: "forwards" });
+    if (fly && from) { Object.assign(fly.style, { position: "fixed", left: `${from.left}px`, top: `${from.top}px`, width: `${from.width}px`, height: `${from.height}px`, margin: "0", zIndex: "62" }); document.body.appendChild(fly); }
+    // the ideas and the fill go, and stay gone until the next opening puts these away
+    for (const n of [...root.current!.querySelectorAll<HTMLElement>("[data-idea]"), pickEl.current].filter((n): n is HTMLElement => !!n))
+      runs.current.push(n.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 180, fill: "forwards" }));
     const land = () => {
-      const to = onLand(i.group!); // the camera is there now, under the paper
+      onLand(i.group!); // the camera is there now, under the paper
       onClose();
       const out = h.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 520, easing: "cubic-bezier(0.3, 0.7, 0.1, 1)", fill: "forwards" });
-      v.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 420, fill: "forwards" });
+      runs.current.push(v.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 420, fill: "forwards" }));
       out.onfinish = () => { root.current!.style.visibility = "hidden"; setShown(false); h.getAnimations().forEach((a) => a.cancel()); };
-      if (fly && from && to) {
-        const k = Math.min(to.w / from.width, to.h / from.height) * 0.9;
-        const tx = to.x + (to.w - from.width * k) / 2 - from.left, ty = to.y + (to.h - from.height * k) / 2 - from.top;
-        const a = fly.animate([{ transform: "none", opacity: 1 }, { opacity: 1, offset: 0.3 }, { transform: `translate(${tx}px, ${ty}px) scale(${k})`, opacity: 0 }], { duration: 560, easing: "cubic-bezier(0.65, 0, 0.35, 1)", fill: "forwards" });
-        a.onfinish = () => fly.remove();
-      } else fly?.remove();
       setBack(i);
+      if (!fly || !from) return;
+      // the picked screen's own place on the canvas, where the camera has just put it
+      const tile = i.pic ? document.querySelector<HTMLElement>(`[data-key="${CSS.escape(i.pic.key)}"]`) : null;
+      const to = tile?.getBoundingClientRect();
+      if (!tile || !to || still()) {
+        // nowhere of its own to land: it goes with the others
+        fly.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 180, fill: "forwards" }).onfinish = () => fly.remove();
+        return;
+      }
+      // the real screen waits under it: one picture on the way, never a copy over its original
+      const hold = tile.animate([{ opacity: 0 }, { opacity: 0 }], { duration: 4000 });
+      // the canvas draws its screens with a 10-point corner (Cluster.tsx), at the camera's scale
+      const r = 10 * (to.width / (tile.offsetWidth || to.width));
+      const a = fly.animate([
+        { left: `${from.left}px`, top: `${from.top}px`, width: `${from.width}px`, height: `${from.height}px`, borderRadius: getComputedStyle(el!).borderRadius },
+        { left: `${to.left}px`, top: `${to.top}px`, width: `${to.width}px`, height: `${to.height}px`, borderRadius: `${r}px` },
+      ], { duration: OPEN.ms, easing: OPEN.ease, fill: "forwards" });
+      // it hands over once the real screen's own picture is up: a group far from where you were
+      // loads its pictures only as it lands
+      const ready = () => { const im = tile.querySelector("img"); return !!im && im.complete && getComputedStyle(im).opacity === "1"; };
+      let waited = 0;
+      const handoff = () => {
+        if (!ready() && (waited += 50) < 1200) { setTimeout(handoff, 50); return; }
+        // the real one's shadow comes in under the copy, then the copy goes: nothing steps
+        hold.cancel();
+        tile.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 120, easing: "ease-out" }).onfinish = () => {
+          fly.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 140, easing: "ease-out", fill: "forwards" }).onfinish = () => fly.remove();
+        };
+      };
+      a.onfinish = handoff;
     };
     if (still()) { land(); return; }
     h.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 150, easing: "ease-out", fill: "forwards" }).onfinish = land;
