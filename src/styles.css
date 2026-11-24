@@ -150,8 +150,10 @@ body {
    each group and each project's thread lines become a small layer of its own (Layer in
    Cluster.tsx), drawn once and then only moved, so the world itself draws nothing. As one big
    layer, WebKit drew its tiles as they came into view, many screens to a tile, and a pan
-   stuttered over new ground. */
-[data-split] .wb-layer { will-change: transform; }
+   stuttered over new ground. A group's title is a layer of its own too: its size follows the
+   zoom on every frame, and drawn into its group's layer that redrew a strip of every group, up
+   to 120ms a frame in Safari zooming in from far out. */
+[data-split] .wb-layer, [data-split] .wb-title { will-change: transform; }
 
 /* press answers on the way down */
 .press { transition: transform 120ms var(--ease-out); }

@@ -118,6 +118,7 @@ export default function App() {
   const sheet = useRef({ s: 1, top: 0, dx: 0 });
   sheet.current = tm ? { ...SHEET, dx: timeShown ? -RAIL_SHIFT : 0 } : { s: 1, top: 0, dx: 0 };
   const settleT = useRef(0);
+  const holdView = useRef(false);
   const camera = useCamera((c, settled) => {
     camRef.current = c;
     if (veilOn.current) placeVeil(c);
@@ -134,17 +135,24 @@ export default function App() {
     // sharp made Chrome rebuild all ~290 of the canvas's layers, and for a frame or three the
     // screens, names and dock went blank. Chrome redraws at the new scale on its own, and
     // WebKit's drawing scale never moved with it.
+    // A flight to a waiting session's screens goes from far out to close in at once. Crossing the
+    // far line on the way swapped every screen's picture and drew every group again: an 80ms
+    // frame in Safari, then two hundred pictures loading mid-flight. On such a flight all of
+    // that waits for the landing, and the screens it lands on were already in view.
+    const held = holdView.current;
+    if (settled) holdView.current = false;
     clearTimeout(settleT.current);
     if (settled) settleT.current = window.setTimeout(() => {
+      if (held) setFar(c.z < 0.42);
       updateView(c);
       setNear(c.z > 0.5); // close in, screens load sharper: decided at rest, not mid-gesture
       split();
     }, 180);
-    setFar(c.z < 0.42); // a no-op unless the line is crossed
+    if (!held) setFar(c.z < 0.42); // a no-op unless the line is crossed
     // mid-move too, a few times a second once it has gone a good way: a long pan back finds its
     // screens already loading instead of grey until the hand stops
     const lv = lastView.current;
-    if (!settled && performance.now() - lv.t > 180 && (Math.abs(c.x - lv.x) > innerWidth * 0.4 || Math.abs(c.y - lv.y) > innerHeight * 0.4 || Math.abs(Math.log(c.z / lv.z)) > 0.3)) updateView(c);
+    if (!held && !settled && performance.now() - lv.t > 180 && (Math.abs(c.x - lv.x) > innerWidth * 0.4 || Math.abs(c.y - lv.y) > innerHeight * 0.4 || Math.abs(Math.log(c.z / lv.z)) > 0.3)) updateView(c);
   });
   // Safari far out: a layer per group, decided at rest. Not in the time machine, where each step
   // through the days would draw every group's layer anew.
@@ -468,6 +476,7 @@ export default function App() {
     const g = world?.clusters.flatMap((c) => c.groups).find((g) => g.ask?.id === id);
     if (!g) return;
     touched.current = true;
+    holdView.current = true;
     const box = listBox(narrow());
     if (narrow()) {
       // above the card

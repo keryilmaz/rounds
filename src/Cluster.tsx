@@ -202,7 +202,7 @@ function GroupTitle({ g, far, colW, onTitle }: { g: Group; far: boolean; colW: n
   const inner = (
     <>
       {/* past about 10% there's no air left above a group for it: it fades */}
-      <span className="wb-z min-w-0 shrink truncate font-[560] tracking-[-0.014em] text-[var(--ink)]" style={{ fontSize: "max(15px, calc(12.5px / var(--z, 1)))", lineHeight: 1.2, opacity: "clamp(0, calc((var(--z, 1) - 0.095) * 100), 1)" }}>{g.title}</span>
+      <span className="wb-z wb-title min-w-0 shrink truncate font-[560] tracking-[-0.014em] text-[var(--ink)]" style={{ fontSize: "max(15px, calc(12.5px / var(--z, 1)))", lineHeight: 1.2, opacity: "clamp(0, calc((var(--z, 1) - 0.095) * 100), 1)" }}>{g.title}</span>
       <span className="type-mono shrink-0 text-[var(--quiet)]" style={{ opacity: far ? 0 : 1, transition: "opacity 240ms var(--ease-out)" }}>{when(g.at)}</span>
       {g.thread && <Glyph name="comment" size={15} className="shrink-0 text-[var(--quiet)] opacity-0 transition-opacity duration-200 group-hover:opacity-100" />}
     </>
