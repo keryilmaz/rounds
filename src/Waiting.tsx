@@ -231,9 +231,13 @@ export function WaitList({ open, stops, index, focus, phone, onFocus, onDone }: 
       // pressed again part way: the same motion turns round from where it is
       closing.current = !open;
       for (const a of moving) a.reverse();
-      moving[0].onfinish = open ? null : () => { f.style.opacity = "0"; setShown(false); };
+      moving[0].onfinish = open ? null : () => { if (!closing.current) return; f.style.opacity = "0"; setShown(false); };
       return;
     }
+    // the last run lets go first: a close holds the card folded into the key once it ends, and
+    // left in place it took the card back the moment the next open finished
+    for (const a of flight.current) a.cancel();
+    flight.current = [];
     closing.current = !open;
     if (open) f.style.opacity = "";
     const box = listBox(phone);
