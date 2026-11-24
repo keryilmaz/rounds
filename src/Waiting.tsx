@@ -80,7 +80,8 @@ export function WaitKey({ n, on, onToggle }: { n: number; on: boolean; onToggle:
   );
 }
 
-const said = (s: Stop) => clean(s.ask || (s.recap ? s.recap.charAt(0).toUpperCase() + s.recap.slice(1) : "It stopped to ask you something."));
+// what it asked, or what it said last; a bare link reads as noise in a row, so it goes
+const said = (s: Stop) => clean((s.ask || (s.recap ? s.recap.charAt(0).toUpperCase() + s.recap.slice(1) : "It stopped to ask you something.")).replace(/\s*https?:\/\/\S+/g, "").replace(/\s{2,}/g, " "));
 
 // the card's place: over the key, 12 above the dock, held inside the window's 16 point margins
 const LIST_W = 392;
@@ -221,7 +222,7 @@ export function WaitList({ open, stops, index, focus, phone, onFocus, onDone }: 
                         {/* open, the time gives way to a way into the session itself */}
                         <span className="type-mono shrink-0 text-[var(--quiet)] transition-opacity duration-200" style={{ opacity: on ? 0 : 1 }}>{when(s.at)}</span>
                       </span>
-                      <span className="mt-0.5 block overflow-hidden text-[13px] leading-[1.4] tracking-[-0.004em] text-[var(--muted)] [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:4] [text-wrap:pretty]">{said(s)}</span>
+                      <span className="mt-0.5 overflow-hidden text-[13px] leading-[1.4] tracking-[-0.004em] text-[var(--muted)] [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:4] [text-wrap:pretty]">{said(s)}</span>
                     </span>
                   </button>
                   <a
