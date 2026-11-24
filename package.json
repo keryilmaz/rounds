@@ -1,6 +1,6 @@
 {
   "name": "rounds-app",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "description": "A local canvas of everything your Claude Code sessions make: screens, pages and pushed changes, by project and topic, with a time machine, before and after, and notes that go back to the session.",
   "license": "MIT",
   "author": "Kris Puckett",
