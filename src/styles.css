@@ -154,6 +154,8 @@ body {
    zoom on every frame, and drawn into its group's layer that redrew a strip of every group, up
    to 120ms a frame in Safari zooming in from far out. */
 [data-split] .wb-layer, [data-split] .wb-title { will-change: transform; }
+/* on a flight to a waiting session's screens the titles keep their size and step out, back as it lands */
+[data-flying] .wb-title { opacity: 0 !important; transition-duration: 120ms !important; }
 
 /* press answers on the way down */
 .press { transition: transform 120ms var(--ease-out); }

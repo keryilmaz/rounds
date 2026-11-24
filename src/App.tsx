@@ -33,10 +33,11 @@ const SHEET = { s: 0.86, top: 156 };
 // ring) read it as --z, set on them alone: set on the whole world, WebKit restyled every screen
 // on every frame of a pinch.
 const zoomed = typeof document === "undefined" ? [] : document.getElementsByClassName("wb-z");
-// A flight from far out to a waiting session's screens leaves the session titles where far out
-// put them, unseen, until it lands (showWaiting): in Safari drawing them at the size they pass
-// through on the way, 80 to 150px in the world, cost the flight its first frames.
+// A flight to a waiting session's screens holds the session titles at the size they had, out of
+// sight, until it lands (showWaiting): in Safari drawing them again at every size they passed
+// through, up to 150px in the world from far out, cost the flight its frames.
 let titlesHeld = false;
+const BACK = "rounds-back"; // where the camera was when the window reloaded for a new build
 const setZoomVar = (z: number) => { for (const n of zoomed as HTMLCollectionOf<HTMLElement>) if (!titlesHeld || !n.classList.contains("wb-title")) n.style.setProperty("--z", String(z)); };
 // Far out (50% and less) in Safari the world splits into a layer per group, name and thread line
 // (styles.css says why); Safari is told apart by its gesture events. Chrome rasters off its main
@@ -115,6 +116,9 @@ export default function App() {
   const veilOn = useRef(false);
   veilOn.current = listOpen;
   const [far, setFar] = useState(true);
+  // the screens' picture size follows far, except on a flight to a waiting session, where the
+  // sharper pictures wait for the titles to finish coming back (picsFar)
+  const [picsFar, setPicsFar] = useState(true);
   const [near, setNear] = useState(false);
   const [view, setView] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   const worldEl = useRef<HTMLDivElement>(null);
@@ -150,15 +154,16 @@ export default function App() {
     // it lands: the titles, the times and the ring arrive as it stops, the sharper pictures after
     if (settled && held) {
       setFar(c.z < 0.42);
-      if (titlesHeld) { titlesHeld = false; setZoomVar(c.z); }
+      if (titlesHeld) { titlesHeld = false; setZoomVar(c.z); worldEl.current?.removeAttribute("data-flying"); }
       if (litOnLand.current) { setLit(litOnLand.current); litOnLand.current = null; }
     }
     if (settled) settleT.current = window.setTimeout(() => {
+      if (held) setPicsFar(c.z < 0.42);
       updateView(c);
       setNear(c.z > 0.5); // close in, screens load sharper: decided at rest, not mid-gesture
       split();
-    }, 180);
-    if (!held) setFar(c.z < 0.42); // a no-op unless the line is crossed
+    }, held ? 280 : 180); // after a flight, once its titles and ring have come in
+    if (!held) { setFar(c.z < 0.42); setPicsFar(c.z < 0.42); } // a no-op unless the line is crossed
     // mid-move too, a few times a second once it has gone a good way: a long pan back finds its
     // screens already loading instead of grey until the hand stops
     const lv = lastView.current;
@@ -252,6 +257,9 @@ export default function App() {
     if (!world || placed.current) return;
     if (!world.clusters.length) { camera.jump(overview()); return; } // the first work to land gets the settle
     placed.current = true;
+    // a window that reloaded itself for a new build comes back where it was
+    const back = (() => { try { const s = JSON.parse(sessionStorage.getItem(BACK) || "null"); sessionStorage.removeItem(BACK); return s && Date.now() - s.t < 60_000 ? s : null; } catch { return null; } })();
+    if (back) { touched.current = back.touched; camera.jump({ x: back.x, y: back.y, z: back.z }); return; }
     const end = overview();
     const s = 1.06;
     camera.jump({ z: end.z * s, x: innerWidth / 2 - (innerWidth / 2 - end.x) * s, y: innerHeight / 2 - (innerHeight / 2 - end.y) * s });
@@ -260,6 +268,27 @@ export default function App() {
 
   // Until he moves the camera, the whole studio stays fitted to the window.
   const touched = useRef(false);
+  // A new build reaches a window already open: coming back to the window, if the server's page
+  // names a different script than this one runs, it reloads, keeping its place. Without it a
+  // window open since before a fix ran the old code until someone thought to reload.
+  useEffect(() => {
+    const mine = document.querySelector('script[src*="/assets/index-"]')?.getAttribute("src");
+    if (!mine) return; // the dev server swaps code on its own
+    let asking = false;
+    const check = async () => {
+      if (asking || document.visibilityState !== "visible") return;
+      asking = true;
+      const page = await fetch("/", { cache: "no-store" }).then((r) => r.text()).catch(() => "");
+      asking = false;
+      const now = page.match(/\/assets\/index-[\w-]+\.js/)?.[0];
+      if (!now || now === mine) return;
+      try { const c = camRef.current; sessionStorage.setItem(BACK, JSON.stringify({ x: c.x, y: c.y, z: c.z, touched: touched.current, t: Date.now() })); } catch {}
+      location.reload();
+    };
+    addEventListener("focus", check);
+    document.addEventListener("visibilitychange", check);
+    return () => { removeEventListener("focus", check); document.removeEventListener("visibilitychange", check); };
+  }, []);
   useEffect(() => {
     const r = () => { if (!touched.current && !open) fitAll(false); };
     addEventListener("resize", r);
@@ -487,8 +516,9 @@ export default function App() {
     if (!g) return;
     touched.current = true;
     holdView.current = true;
-    // only from where the titles are already unseen: they wait, and fade in where it lands
-    if (camRef.current.z < 0.095) titlesHeld = true;
+    // the titles keep their size and step out (data-flying), quicker than they come back as it lands
+    titlesHeld = true;
+    worldEl.current?.setAttribute("data-flying", "");
     const box = listBox(narrow());
     if (narrow()) {
       // above the card
@@ -950,6 +980,7 @@ export default function App() {
             c={c}
             cap={world.nameCap}
             far={far}
+            picsFar={picsFar}
             near={near}
             live={live.get(c.key) ?? ""}
             dimmed={!!focus && focus !== c.key}

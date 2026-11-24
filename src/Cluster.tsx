@@ -60,8 +60,8 @@ function ActivityField({ threads, pages, days }: { threads: Thread[]; pages: Pag
   return <div className="relative" style={{ width: x - (PITCH - BLOCK), height: 3 * BLOCK + 6 }}>{cells}</div>;
 }
 
-export const ClusterView = memo(function ClusterView({ c, cap, far, near, live, dimmed, openKey, noted, fresh, threadsAll, onFocus, onHover, onOpen, onTitle, onFile, onSession, onAsk }: {
-  c: Cluster; cap: number; far: boolean; near: boolean; live: string; dimmed: boolean; openKey?: string;
+export const ClusterView = memo(function ClusterView({ c, cap, far, picsFar, near, live, dimmed, openKey, noted, fresh, threadsAll, onFocus, onHover, onOpen, onTitle, onFile, onSession, onAsk }: {
+  c: Cluster; cap: number; far: boolean; picsFar: boolean; near: boolean; live: string; dimmed: boolean; openKey?: string;
   noted: Set<string>; fresh: Set<string>; threadsAll: Thread[];
   onFocus: (c: Cluster) => void; onHover: (key: string, on: boolean) => void; onOpen: (g: Group, i: number, el: HTMLElement) => void;
   onTitle: (g: Group) => boolean; onFile: (sheet: FilesSheet, i: number, el: HTMLElement) => void; onSession: (id: string) => void;
@@ -115,7 +115,7 @@ export const ClusterView = memo(function ClusterView({ c, cap, far, near, live, 
               ? <Note key={it.key} it={it} far={far} />
               : it.kind === "files"
               ? <Files key={it.key} it={it} far={far} onFile={onFile} onSession={onSession} />
-              : <Screen key={it.key} it={it} far={far} near={near} live={lit.has(g.id)} hidden={openKey === it.key} noted={noted.has(it.kind === "page" ? it.page.id : `shot-${it.shot.hash}`)} fresh={it.kind === "page" && fresh.has(it.page.id)} label={g.title} onOpen={(el) => onOpen(g, i, el)} />
+              : <Screen key={it.key} it={it} far={picsFar} near={near} live={lit.has(g.id)} hidden={openKey === it.key} noted={noted.has(it.kind === "page" ? it.page.id : `shot-${it.shot.hash}`)} fresh={it.kind === "page" && fresh.has(it.page.id)} label={g.title} onOpen={(el) => onOpen(g, i, el)} />
           ))}
           {g.ask && (() => {
             // on its newest screen's corner, where the note badge sits; when a note holds it, just inside

@@ -16,7 +16,8 @@ export function serve(port) {
       let f = path.join(DIST, decodeURIComponent(url.pathname));
       if (!f.startsWith(DIST) || !fs.existsSync(f) || fs.statSync(f).isDirectory()) f = path.join(DIST, "index.html");
       res.setHeader("content-type", TYPES[path.extname(f)] || "application/octet-stream");
-      if (f.includes(`${path.sep}assets${path.sep}`)) res.setHeader("cache-control", "max-age=31536000, immutable");
+      // the page itself is asked for fresh every time, so a reload always finds the newest build
+      res.setHeader("cache-control", f.includes(`${path.sep}assets${path.sep}`) ? "max-age=31536000, immutable" : "no-cache");
       fs.createReadStream(f).pipe(res);
     });
   });
