@@ -202,3 +202,71 @@ textarea:focus-visible, input:focus-visible { outline: none; }
 
 /* the name's trailing word and the activity strip trade places at the far line */
 @keyframes wb-strip { from { opacity: 0 } }
+
+/* The switcher (Switcher.tsx): every idea you have going, as its real screen, over the canvas.
+   Fills, never borders; the accent spent only on what's held up on you. */
+.sw-veil { background: color-mix(in srgb, var(--wall) 80%, transparent); -webkit-backdrop-filter: blur(28px) saturate(115%); backdrop-filter: blur(28px) saturate(115%); }
+.sw-hush { background: var(--wall); opacity: 0; }
+.sw-pick { position: absolute; left: 0; top: 0; border-radius: 22px; background: rgba(21, 24, 29, 0.055); pointer-events: none;
+  transition: transform 320ms var(--ease-out), width 320ms var(--ease-out), height 320ms var(--ease-out), opacity 200ms var(--ease-out); }
+.sw-idea { cursor: pointer; transition: opacity 260ms var(--ease-out); }
+.sw-scr { position: relative; overflow: hidden; border-radius: 12px; background: var(--wall-deep);
+  box-shadow: 0 0 0 0.5px rgba(21, 24, 29, 0.1), 0 1px 2px rgba(20, 18, 15, 0.06), 0 18px 40px -22px rgba(20, 18, 15, 0.38); }
+.sw-scr img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: 50% 0; }
+.sw-scr.words { box-shadow: none; background: rgba(21, 24, 29, 0.045); display: flex; align-items: flex-end; padding: 14px; box-sizing: border-box; }
+.sw-scr.words span { font-size: 15px; line-height: 1.3; font-weight: 600; letter-spacing: -0.012em; color: var(--ink); display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; text-wrap: pretty; }
+.sw-cap { padding-top: 11px; }
+.sw-nm { font-size: 14px; line-height: 1.3; font-weight: 560; letter-spacing: -0.01em; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sw-ln { margin-top: 2px; font-size: 12.5px; line-height: 1.35; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-wrap: pretty; }
+.sw-ln svg { display: inline; vertical-align: -1.5px; color: var(--ink); }
+.sw-ask { position: absolute; will-change: scale, opacity; top: -8px; right: -8px; height: 24px; min-width: 24px; padding: 0 7px; box-sizing: border-box; border-radius: 12px; display: grid; place-items: center;
+  background: var(--honey); color: #fff; font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; cursor: pointer;
+  box-shadow: 0 0 0 2.5px var(--wall), 0 4px 10px -2px rgba(30, 50, 120, 0.3); transition: opacity 160ms var(--ease-out), scale 280ms var(--ease-out); }
+.sw-ask.wait { background: #dde1e6; color: var(--ink); box-shadow: 0 0 0 2.5px var(--wall), 0 3px 8px -3px rgba(20, 18, 15, 0.22); }
+@media (prefers-reduced-transparency: reduce) { .sw-veil { background: var(--wall); -webkit-backdrop-filter: none; backdrop-filter: none; } }
+
+/* while the switcher is up, the dock stays over its veil, the key lit */
+.sw-on .dock { z-index: 41; }
+
+/* A decision, answered where you are (Decision.tsx), made to the house's own measure: the dock's
+   28 corner, 40-point capsules 8 in (8 + 20 = 28), words 18 in, 14 for the question and 13 around it. */
+.dc-wrap { position: fixed; left: 0; top: 0; visibility: hidden; }
+.dc-shade { position: absolute; left: 0; top: 0; border-radius: 28px; transform-origin: 0 0; will-change: transform, opacity; pointer-events: none; opacity: 0;
+  box-shadow: 0 24px 60px -24px rgba(40, 30, 15, 0.34), 0 6px 16px -8px rgba(40, 30, 15, 0.2); }
+.glass.dc-card { position: absolute; left: 0; top: 0; overflow: hidden; transform-origin: 0 0; will-change: transform; border-radius: 28px; }
+.glass.dc-card > .dc-tint { position: absolute; inset: 0; z-index: 4; background: var(--honey); pointer-events: none; }
+.glass.dc-card > .dc-tint.wait { background: #dde1e6; }
+.glass.dc-card > .dc-in { transform-origin: 0 0; will-change: transform, opacity; padding: 16px 8px 8px; opacity: 0; }
+.dc-dot { position: absolute; z-index: 5; display: grid; place-items: center; border-radius: 999px; color: #fff; font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; pointer-events: none; }
+.dc-dot.wait { color: var(--ink); }
+.dc-dot svg { width: 56%; height: 56%; }
+.dc-tx { padding: 0 10px; }
+.dc-hole { float: right; height: 18px; margin-left: 8px; }
+.dc-lead { margin: 0 0 2px; font-size: 13px; line-height: 1.4; letter-spacing: -0.004em; color: var(--muted); text-wrap: pretty; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.dc-q { margin: 0; font-size: 14px; line-height: 1.4; font-weight: 600; letter-spacing: -0.012em; color: var(--ink); text-wrap: balance; }
+.dc-open { position: absolute; top: 12px; right: 10px; height: 26px; min-width: 26px; padding: 0 8px; box-sizing: border-box; border-radius: 13px; display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+  font-size: 12px; font-weight: 520; letter-spacing: -0.004em; color: var(--quiet); transition: background 160ms var(--ease-out), color 160ms var(--ease-out); }
+.dc-open:hover { background: rgba(21, 24, 29, 0.05); color: var(--ink); }
+.dc-open:focus-visible { outline: 2px solid var(--honey); outline-offset: 1px; }
+.dc-as { display: flex; gap: 6px; margin-top: 14px; }
+.dc-as > button, .dc-as > a { flex: 1 1 0; min-width: 0; height: 40px; padding: 0 14px; border-radius: 20px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  font-size: 13.5px; font-weight: 560; letter-spacing: -0.01em; color: var(--ink); background: rgba(21, 24, 29, 0.06);
+  transition: background 160ms var(--ease-out), opacity 200ms var(--ease-out), transform 120ms var(--ease-out); }
+.dc-as > button > span, .dc-as > a > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dc-as > button:hover { background: rgba(21, 24, 29, 0.1); }
+.dc-as .go { background: var(--ink); color: #fff; }
+.dc-as .go:hover { background: color-mix(in srgb, var(--ink) 86%, white); }
+.dc-as > button.on { background: var(--ink); color: #fff; }
+.dc-as > button.send { flex: 0 0 auto; padding: 0 18px; }
+.dc-as > button:focus-visible, .dc-as > a:focus-visible { outline: 2px solid var(--honey); outline-offset: 2px; }
+.dc-as input { flex: 1; min-width: 0; height: 40px; border-radius: 20px; padding: 0 16px; font-size: 13.5px; letter-spacing: -0.01em; color: var(--ink); background: rgba(21, 24, 29, 0.06); outline: none; }
+.dc-as input::placeholder { color: var(--quiet); }
+/* the canvas mark whose question is open steps aside for the card that grew out of it */
+[data-wait][data-open] { opacity: 0; }
+/* who's asking, beside a mark on the canvas, over everything else */
+.mark-tip { position: fixed; z-index: 44; pointer-events: none; white-space: nowrap; border-radius: 999px; padding: 7px 12px; font-size: 13px; line-height: 1.2; font-weight: 520; letter-spacing: -0.005em; color: var(--ink); translate: 0 -50%; }
+.mark-tip { animation: mark-tip-in 180ms var(--ease-out) both; }
+@keyframes mark-tip-in { from { opacity: 0; } }
+.sw-scrim { position: absolute; inset: 0; z-index: 4; background: var(--wall); pointer-events: none; transition: opacity 240ms var(--ease-out); }
+.glass.dc-card.moving { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8) !important; }
+.glass.dc-card.moving::before { display: none; }

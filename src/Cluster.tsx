@@ -162,6 +162,7 @@ function WaitMark({ id, title, x, y, onAsk }: { id: string; title: string; x: nu
     <button
       type="button"
       data-wait={id}
+      data-title={clean(title)}
       aria-label={`${clean(title)} is waiting on you`}
       className="wb-z group absolute grid place-items-center rounded-full outline-none before:absolute before:inset-[-25%] before:content-['']"
       style={{ left: x, top: y, width: size, height: size, translate: "-50% -50%" }}
@@ -177,14 +178,8 @@ function WaitMark({ id, title, x, y, onAsk }: { id: string; title: string; x: nu
       >
         <Glyph name="comment" size={16} className="h-[54%] w-[54%]" />
       </span>
-      {/* who's asking, beside the mark (above it would cross the group's title), in the dock's tip
-          glass, 13 points on screen whatever the zoom; after a beat, like the dock's */}
-      <span
-        className="glass thick pointer-events-none absolute whitespace-nowrap rounded-full font-[520] tracking-[-0.005em] text-[var(--ink)] opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-hover:delay-300 group-focus-visible:opacity-100"
-        style={{ fontSize: "calc(13px / var(--z, 1))", lineHeight: "1.2", padding: "0.5em 0.9em", left: "calc(100% + 0.5em)", top: "50%", translate: "0 -50%" }}
-      >
-        {clean(title)}
-      </span>
+      {/* who's asking shows beside it in App (markTip): drawn inside its group, the groups after
+          it painted over the words */}
     </button>
   );
 }

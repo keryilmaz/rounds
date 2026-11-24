@@ -68,14 +68,14 @@ export function WaitKey({ n, on, onToggle }: { n: number; on: boolean; onToggle:
       onClick={onToggle}
       aria-pressed={on}
       aria-expanded={on}
-      aria-label={`${n} waiting on you`}
+      aria-label={n ? `${n} waiting on you` : "Your ideas"}
       aria-keyshortcuts="W"
-      data-tip={on ? undefined : "Waiting on you (W)"}
+      data-tip={on ? undefined : n ? "Waiting on you (W)" : "Your ideas (W)"}
       className="flex h-11 shrink-0 items-center gap-2 rounded-full pl-3 pr-4 text-[13px] font-[560] tracking-[-0.01em] text-[var(--ink)] transition-[background,transform] duration-200 active:scale-95"
       style={{ background: on ? "var(--honey-wash)" : "transparent", transition: `background ${OPEN.ms}ms ${OPEN.ease}, transform 200ms ${EASE}`, animation: "wb-chip 260ms var(--ease-out) both" }}
     >
       <Mark size={20} />
-      <span className="[font-variant-numeric:tabular-nums]">{n}</span>
+      {n > 0 && <span className="[font-variant-numeric:tabular-nums]">{n}</span>}
     </button>
   );
 }
@@ -120,7 +120,7 @@ const EASE = "cubic-bezier(0.2, 0.8, 0.2, 1)"; // the house ease-out (--ease-out
 const linearOk = typeof CSS !== "undefined" && CSS.supports?.("transition-timing-function", "linear(0, 1)");
 const sprung = (response: number) => (linearOk ? spring(response) : { ease: EASE, ms: Math.round(spring(response).ms * 0.7) });
 export const OPEN = sprung(0.3); // the card arriving, a row opening, the canvas stepping back
-const CLOSE = sprung(0.24); // back into the key, a touch quicker
+export const CLOSE = sprung(0.24); // back into the key, a touch quicker
 const still = () => typeof matchMedia !== "undefined" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 // Opened from the keyboard, the first row takes focus; opened with the pointer, nothing does.

@@ -15,6 +15,9 @@ import { Search, type Hit } from "./Search";
 import { ShotStage, type ShotOpening } from "./ShotStage";
 import { Empty } from "./Empty";
 import { WaitKey, WaitList, WaitVeil, listBox, narrow, useStops, useWaiting, useWarm, veilPath, type Hole, type Stop } from "./Waiting";
+import { Switcher } from "./Switcher";
+import { DecisionCard } from "./Decision";
+import { Glyph } from "./glyphs";
 
 // The day in two tones: what you'd call it, then the date.
 function dayName(d: Date): [string, string] {
@@ -110,6 +113,15 @@ export default function App() {
   const wait = useWaiting(stops);
   const [listOpen, setListOpen] = useState(false);
   const [waitFocus, setWaitFocus] = useState<string | null>(null); // the row open in the card
+  // On a Mac the key opens the switcher instead (Switcher.tsx): every idea you have going, with what
+  // waits on you answered on its own screen. A phone keeps the card.
+  const [switchOpen, setSwitchOpen] = useState(false);
+  const [switchFocus, setSwitchFocus] = useState<string | null>(null); // a session to open the decision of
+  // a mark's question, open on the canvas at the mark; and who's asking, beside a mark under the pointer
+  const [markDc, setMarkDc] = useState<{ stop: Stop; at: { x: number; y: number }; size: number; open: boolean; sent: boolean } | null>(null);
+  const [markTip, setMarkTip] = useState<{ title: string; x: number; y: number; left: boolean } | null>(null);
+  const waitingRef = useRef<Stop[]>([]);
+  waitingRef.current = wait.waiting;
   // the veil the canvas steps back under while the card is open, cut away at the waiting screens
   const veilEl = useRef<SVGPathElement>(null);
   const holes = useRef<Hole[]>([]);
@@ -542,8 +554,74 @@ export default function App() {
     setWaitFocus(id);
     if (id) setTimeout(() => showRef.current(id), narrow() ? 340 : 0);
   };
-  // a mark on a screen opens the card at its row
-  const onAsk = useCallback((id: string) => { setListOpen(true); setWaitFocus(id); setTimeout(() => showRef.current(id), narrow() ? 420 : 0); }, []);
+  // a mark on a screen opens its question right there on a Mac (Decision.tsx); on a phone, the card at its row
+  const onAsk = useCallback((id: string) => {
+    if (!narrow()) {
+      const s = waitingRef.current.find((x) => x.id === id);
+      const el = document.querySelector<HTMLElement>(`[data-wait="${CSS.escape(id)}"]`);
+      if (!s || !el) return;
+      const r = el.getBoundingClientRect();
+      el.toggleAttribute("data-open", true);
+      setMarkTip(null);
+      setMarkDc({ stop: s, at: { x: r.left + r.width / 2, y: r.top + r.height / 2 }, size: r.width, open: true, sent: false });
+      return;
+    }
+    setListOpen(true); setWaitFocus(id); setTimeout(() => showRef.current(id), 420);
+  }, []);
+  // going into an idea from the switcher: the camera there at once (under the switcher's paper),
+  // its group lit, and where its screens now sit in the window, for the screen to settle into
+  const landOn = (g: Group) => {
+    touched.current = true;
+    const v = groupView(g);
+    camera.jump(v);
+    setLit(g.id);
+    const t = 44; // the group's title line (layout's TITLE_H)
+    return { x: v.x + g.x * v.z, y: v.y + (g.y + t) * v.z, w: g.w * v.z, h: Math.max(40, (g.h - t) * v.z) };
+  };
+  const toggleSwitch = () => { setSwitchFocus(null); setSwitchOpen((o) => !o); };
+  const markDcRef = useRef(markDc);
+  markDcRef.current = markDc;
+  // a press anywhere but the card, or the canvas moving, puts a mark's question away
+  useEffect(() => {
+    if (!markDc?.open) return;
+    const away = (e: Event) => {
+      if ((e.target as HTMLElement)?.closest?.("[data-decision]")) return;
+      setMarkDc((m) => (m ? { ...m, open: false } : m));
+      // a press that puts the question away does only that: the click it ends in opens nothing under it
+      if (e.type !== "pointerdown") return;
+      const eat = (ev: Event) => { ev.stopPropagation(); ev.preventDefault(); };
+      addEventListener("click", eat, { capture: true, once: true });
+      setTimeout(() => removeEventListener("click", eat, true), 500);
+    };
+    addEventListener("pointerdown", away, true);
+    addEventListener("wheel", away, { capture: true, passive: true });
+    return () => { removeEventListener("pointerdown", away, true); removeEventListener("wheel", away, { capture: true } as EventListenerOptions); };
+  }, [markDc?.open]);
+  // who's asking, after a beat under the pointer; drawn over the whole canvas, beside the mark
+  useEffect(() => {
+    let t = 0;
+    const markOf = (n: EventTarget | null) => (n as HTMLElement | null)?.closest?.("[data-wait]") as HTMLElement | null;
+    const over = (e: PointerEvent) => {
+      const m = markOf(e.target);
+      if (!m || narrow() || markOf(e.relatedTarget) === m) return;
+      clearTimeout(t);
+      t = window.setTimeout(() => {
+        if (m.hasAttribute("data-open") || !m.isConnected) return;
+        const r = m.getBoundingClientRect(), title = m.dataset.title || "";
+        const left = r.right + 10 + title.length * 7.4 + 28 > innerWidth - 16;
+        setMarkTip({ title, x: left ? r.left - 10 : r.right + 10, y: r.top + r.height / 2, left });
+      }, 300);
+    };
+    const out = (e: PointerEvent) => { const m = markOf(e.target); if (m && markOf(e.relatedTarget) !== m) { clearTimeout(t); setMarkTip(null); } };
+    const hide = () => { clearTimeout(t); setMarkTip(null); };
+    addEventListener("pointerover", over);
+    addEventListener("pointerout", out);
+    addEventListener("pointerdown", hide, true);
+    addEventListener("wheel", hide, { passive: true });
+    return () => { clearTimeout(t); removeEventListener("pointerover", over); removeEventListener("pointerout", out); removeEventListener("pointerdown", hide, true); removeEventListener("wheel", hide); };
+  }, []);
+  const toggleSwitchRef = useRef(toggleSwitch);
+  toggleSwitchRef.current = toggleSwitch;
   const showRef = useRef(showWaiting);
   showRef.current = showWaiting;
   const answered = (s: Stop) => {
@@ -554,7 +632,9 @@ export default function App() {
   // W opens and closes the card, as T does the timeline
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
-      if ((e.key !== "w" && e.key !== "W") || e.metaKey || e.ctrlKey || e.altKey || typing(e) || searching || !wait.waiting.length) return;
+      if ((e.key !== "w" && e.key !== "W") || e.metaKey || e.ctrlKey || e.altKey || typing(e) || searching) return;
+      if (!narrow()) { e.preventDefault(); toggleSwitchRef.current(); return; }
+      if (!wait.waiting.length) return;
       e.preventDefault();
       setListOpen((o) => !o);
       setWaitFocus(null);
@@ -1078,7 +1158,7 @@ export default function App() {
           onSearch={() => setSearching(true)}
           session={chat ? clean(index.threads.find((t) => t.id === chat)?.title || "") || "Session" : null}
           onAll={() => showSession(null)}
-          inline={wait.waiting.length ? <WaitKey n={wait.waiting.length} on={listOpen} onToggle={toggleList} /> : undefined}
+          inline={!narrow() ? <WaitKey n={wait.waiting.length} on={switchOpen} onToggle={toggleSwitch} /> : wait.waiting.length ? <WaitKey n={wait.waiting.length} on={listOpen} onToggle={toggleList} /> : undefined}
         />
       )}
       {index && (
@@ -1099,7 +1179,25 @@ export default function App() {
           {dropping.name}
         </div>
       )}
-      {index && <WaitList open={listOpen && wait.waiting.length > 0} stops={wait.waiting} index={index} focus={waitFocus} phone={narrow()} onFocus={focusRow} onDone={answered} />}
+      {markTip && <div className="glass thick mark-tip" style={{ left: markTip.x, top: markTip.y, translate: markTip.left ? "-100% -50%" : "0 -50%" }}>{markTip.title}</div>}
+      {markDc && (
+        <DecisionCard key={markDc.stop.id} stop={markDc.stop} at={markDc.at} size={markDc.size} open={markDc.open} tone="accent" mark={<Glyph name="comment" size={16} />}
+          onSent={() => setMarkDc((m) => (m ? { ...m, open: false, sent: true } : m))}
+          onDismiss={() => setMarkDc((m) => (m ? { ...m, open: false } : m))}
+          onGone={() => {
+            const m = markDcRef.current;
+            setMarkDc(null);
+            if (!m) return;
+            // answered, the mark it folded into goes with it; put away, the mark comes back
+            if (m.sent) answered(m.stop);
+            else document.querySelector(`[data-wait="${CSS.escape(m.stop.id)}"]`)?.removeAttribute("data-open");
+          }} />
+      )}
+      {index && narrow() && <WaitList open={listOpen && wait.waiting.length > 0} stops={wait.waiting} index={index} focus={waitFocus} phone onFocus={focusRow} onDone={answered} />}
+      {index && world && !narrow() && (
+        <Switcher open={switchOpen} clusters={world.clusters} index={index} stops={wait.waiting} focus={switchFocus}
+          onClose={() => setSwitchOpen(false)} onLand={landOn} onDone={answered} />
+      )}
       {searching && index && <Search index={index} onPick={find} onClose={() => setSearching(false)} />}
 
       {shots && index && (
