@@ -33,7 +33,11 @@ const SHEET = { s: 0.86, top: 156 };
 // ring) read it as --z, set on them alone: set on the whole world, WebKit restyled every screen
 // on every frame of a pinch.
 const zoomed = typeof document === "undefined" ? [] : document.getElementsByClassName("wb-z");
-const setZoomVar = (z: number) => { for (const n of zoomed as HTMLCollectionOf<HTMLElement>) n.style.setProperty("--z", String(z)); };
+// A flight from far out to a waiting session's screens leaves the session titles where far out
+// put them, unseen, until it lands (showWaiting): in Safari drawing them at the size they pass
+// through on the way, 80 to 150px in the world, cost the flight its first frames.
+let titlesHeld = false;
+const setZoomVar = (z: number) => { for (const n of zoomed as HTMLCollectionOf<HTMLElement>) if (!titlesHeld || !n.classList.contains("wb-title")) n.style.setProperty("--z", String(z)); };
 // Far out (50% and less) in Safari the world splits into a layer per group, name and thread line
 // (styles.css says why); Safari is told apart by its gesture events. Chrome rasters off its main
 // thread and pans the one layer at full speed, so it keeps it.
@@ -119,6 +123,7 @@ export default function App() {
   sheet.current = tm ? { ...SHEET, dx: timeShown ? -RAIL_SHIFT : 0 } : { s: 1, top: 0, dx: 0 };
   const settleT = useRef(0);
   const holdView = useRef(false);
+  const litOnLand = useRef<string | null>(null);
   const camera = useCamera((c, settled) => {
     camRef.current = c;
     if (veilOn.current) placeVeil(c);
@@ -142,8 +147,13 @@ export default function App() {
     const held = holdView.current;
     if (settled) holdView.current = false;
     clearTimeout(settleT.current);
+    // it lands: the titles, the times and the ring arrive as it stops, the sharper pictures after
+    if (settled && held) {
+      setFar(c.z < 0.42);
+      if (titlesHeld) { titlesHeld = false; setZoomVar(c.z); }
+      if (litOnLand.current) { setLit(litOnLand.current); litOnLand.current = null; }
+    }
     if (settled) settleT.current = window.setTimeout(() => {
-      if (held) setFar(c.z < 0.42);
       updateView(c);
       setNear(c.z > 0.5); // close in, screens load sharper: decided at rest, not mid-gesture
       split();
@@ -477,6 +487,8 @@ export default function App() {
     if (!g) return;
     touched.current = true;
     holdView.current = true;
+    // only from where the titles are already unseen: they wait, and fade in where it lands
+    if (camRef.current.z < 0.095) titlesHeld = true;
     const box = listBox(narrow());
     if (narrow()) {
       // above the card
@@ -491,7 +503,9 @@ export default function App() {
       const z = Math.min(1.1, (lw - 160) / Math.max(g.w, 640), (lh - 200) / g.h);
       camera.glide({ z, x: x0 + lw / 2 - (g.x + g.w / 2) * z, y: (lh - g.h * z) / 2 + 16 - g.y * z });
     }
-    setLit(g.id);
+    // the ring lights it on arrival, with its titles; the veil's window already shows where to.
+    // Drawn as the flight left, its first frame cost Safari up to 35ms more
+    litOnLand.current = g.id;
   };
   // on a phone the work goes above the card, so it waits for the card to finish growing
   const focusRow = (id: string | null) => {
