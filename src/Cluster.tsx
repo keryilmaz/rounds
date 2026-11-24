@@ -2,6 +2,7 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { clean, img, thumb, threadLink, when, type Page, type Thread } from "./data";
 import { COL_GAP, type Ask, type Cluster, type FileRow, type Group, type PlacedItem } from "./layout";
 import { Glyph } from "./glyphs";
+import { OPEN } from "./Waiting";
 
 const dayKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
@@ -195,7 +196,8 @@ function WaitMark({ id, title, x, y, onAsk }: { id: string; title: string; x: nu
 // stepping back while the dock key's card is open: there, but out of the way. Opacity alone: a blur on every
 // group is a filtered layer per group, which Safari pays for on every frame of a pan, and at 10%
 // the blur barely showed
-const away = (on: boolean): React.CSSProperties => ({ opacity: on ? 0.1 : 1, transition: "opacity 420ms var(--ease-out)" });
+// It steps back on the card's own spring, so the two move as one.
+const away = (on: boolean): React.CSSProperties => ({ opacity: on ? 0.1 : 1, transition: `opacity ${OPEN.ms}ms ${OPEN.ease}` });
 
 // In Safari far out, each project's name, each group and each project's thread lines are a layer
 // of their own (styles.css says why). Anywhere else this div does nothing.

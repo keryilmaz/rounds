@@ -72,7 +72,7 @@ export function WaitKey({ n, on, onToggle }: { n: number; on: boolean; onToggle:
       aria-keyshortcuts="W"
       data-tip={on ? undefined : "Waiting on you (W)"}
       className="flex h-11 shrink-0 items-center gap-2 rounded-full pl-3 pr-4 text-[13px] font-[560] tracking-[-0.01em] text-[var(--ink)] transition-[background,transform] duration-200 active:scale-95"
-      style={{ background: on ? "var(--honey-wash)" : "transparent", animation: "wb-chip 260ms var(--ease-out) both" }}
+      style={{ background: on ? "var(--honey-wash)" : "transparent", transition: `background ${OPEN.ms}ms ${OPEN.ease}, transform 200ms ${EASE}`, animation: "wb-chip 260ms var(--ease-out) both" }}
     >
       <Mark size={20} />
       <span className="[font-variant-numeric:tabular-nums]">{n}</span>
@@ -104,8 +104,36 @@ function pictureOf(index: Index, id: string): string | null {
   return page ? thumb(page.versions[page.versions.length - 1].hash) : null;
 }
 
+// One spring for everything the card does, critically damped: it opens from a click, an entrance,
+// so nothing overshoots. Solved once into a CSS linear() curve that animations and transitions
+// both take; where linear() isn't understood, the house ease-out at about the same length.
+function spring(response: number) {
+  const w = (2 * Math.PI) / response;
+  const x = (t: number) => 1 - Math.exp(-w * t) * (1 + w * t);
+  let T = response;
+  while (1 - x(T) > 0.0015) T += 0.005;
+  const pts: string[] = [];
+  for (let i = 0; i <= 40; i++) pts.push(i === 40 ? "1" : x((T * i) / 40).toFixed(4));
+  return { ease: `linear(${pts.join(", ")})`, ms: Math.round(T * 1000) };
+}
 const EASE = "cubic-bezier(0.2, 0.8, 0.2, 1)"; // the house ease-out (--ease-out)
+const linearOk = typeof CSS !== "undefined" && CSS.supports?.("transition-timing-function", "linear(0, 1)");
+const sprung = (response: number) => (linearOk ? spring(response) : { ease: EASE, ms: Math.round(spring(response).ms * 0.7) });
+export const OPEN = sprung(0.3); // the card arriving, a row opening, the canvas stepping back
+const CLOSE = sprung(0.24); // back into the key, a touch quicker
 const still = () => typeof matchMedia !== "undefined" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+// Opened from the keyboard, the first row takes focus; opened with the pointer, nothing does.
+let viaKeys = false;
+if (typeof window !== "undefined") {
+  addEventListener("keydown", (e) => { if (!e.metaKey && !e.ctrlKey) viaKeys = true; }, true);
+  addEventListener("pointerdown", () => { viaKeys = false; }, true);
+}
+
+// The glass's drop shadow rides a layer of its own, so it can grow with the card (the clip that
+// opens the card would cut a shadow of its own off); the card keeps the glass's rim.
+const SHADE = "0 24px 60px -24px rgba(40, 30, 15, 0.34), 0 6px 16px -8px rgba(40, 30, 15, 0.2)";
+const RIM = "inset 0 1px 0 rgba(255, 255, 255, 0.8), inset 0 -1px 0 rgba(255, 255, 255, 0.3), inset 0 0 14px rgba(255, 255, 255, 0.36), inset 0 -10px 18px -12px rgba(60, 45, 20, 0.12)";
 
 /** Everything waiting on you, in a card that grows out of the dock's key and folds back into it. */
 export function WaitList({ open, stops, index, focus, phone, onFocus, onDone }: {
@@ -116,35 +144,64 @@ export function WaitList({ open, stops, index, focus, phone, onFocus, onDone }: 
   const [sent, setSent] = useState<{ id: string; text: string } | null>(null); // an answer on its way
   const [leaving, setLeaving] = useState<string | null>(null);
   const [edges, setEdges] = useState({ up: false, down: false });
+  const frame = useRef<HTMLDivElement>(null);
+  const shade = useRef<HTMLDivElement>(null);
   const card = useRef<HTMLDivElement>(null);
   const body = useRef<HTMLDivElement>(null);
+  const flight = useRef<Animation[]>([]); // what's moving now, so a press part way turns it round
+  const closing = useRef(false);
   if (open && !shown) setShown(true);
 
-  // in: from the key's own pill to the card, the rows arriving once there's room for them;
-  // out: the same path back, the rows gone first
+  // The card is laid out where it ends, from the first frame: nothing in it reflows or slides
+  // sideways. Opening, a clip that starts as the key's own pill opens into the card while the card
+  // rises off the key; the rows arrive once the window is two fifths open. Closing runs the same
+  // path back: the rows leave over the first half, the glass fades into the key over the last.
   useLayoutEffect(() => {
-    const el = card.current, b = body.current;
-    if (!shown || !el || !b) return;
+    const f = frame.current, sh = shade.current, el = card.current, b = body.current;
+    if (!shown || !f || !sh || !el || !b) return;
+    const moving = flight.current.filter((a) => a.playState === "running");
+    if (moving.length && closing.current !== !open) {
+      // pressed again part way: the same motion turns round from where it is
+      closing.current = !open;
+      for (const a of moving) a.reverse();
+      moving[0].onfinish = open ? null : () => { f.style.opacity = "0"; setShown(false); };
+      return;
+    }
+    closing.current = !open;
     const box = listBox(phone);
-    Object.assign(el.style, { left: `${box.left}px`, bottom: `${box.bottom}px`, width: `${box.w}px` });
-    const k = box.key;
-    const end = { left: `${box.left}px`, bottom: `${box.bottom}px`, width: `${box.w}px`, height: `${el.offsetHeight}px`, borderRadius: "24px" };
-    const start = k ? { left: `${k.left}px`, bottom: `${innerHeight - k.bottom}px`, width: `${k.width}px`, height: `${k.height}px`, borderRadius: `${k.height / 2}px` } : end;
+    if (open) Object.assign(f.style, { left: `${box.left}px`, bottom: `${box.bottom}px`, width: `${box.w}px` });
+    const F = f.getBoundingClientRect(), K = box.key;
+    if (open && viaKeys) b.querySelector<HTMLElement>("button[aria-expanded]")?.focus({ preventScroll: true });
+    if (still() || !K) {
+      const a = f.animate(open ? [{ opacity: 0 }, { opacity: 1 }] : [{ opacity: 1 }, { opacity: 0 }], { duration: open ? 160 : 140, fill: open ? "none" : "forwards" });
+      flight.current = [a];
+      if (!open) a.onfinish = () => setShown(false);
+      return;
+    }
+    // the key, seen from the card: the card slid down until its foot meets the key's, clipped to the key's pill
+    const at = { transform: `translateY(${K.bottom - F.bottom}px)`, clipPath: `inset(${F.height - K.height}px ${F.right - K.right}px 0px ${K.left - F.left}px round ${K.height / 2}px)` };
+    const whole = { transform: "translateY(0px)", clipPath: "inset(0px 0px 0px 0px round 24px)" };
+    // the shadow grows from the key's size about the card's middle
+    const tx = K.left + K.width / 2 - (F.left + F.width / 2), ty = K.top + K.height / 2 - (F.top + F.height / 2);
+    const small = { transform: `translate(${tx}px, ${ty}px) scale(${K.width / F.width}, ${K.height / F.height})` };
+    const full = { transform: "translate(0px, 0px) scale(1, 1)" };
+    const t = open ? OPEN : CLOSE;
+    const o: KeyframeAnimationOptions = { duration: t.ms, easing: t.ease, fill: open ? "none" : "forwards" };
     if (open) {
-      // opened from the keyboard, the first row takes focus
-      if (document.activeElement?.closest("[data-waitkey]") || document.activeElement === document.body) b.querySelector<HTMLElement>("button[aria-expanded]")?.focus({ preventScroll: true });
-      if (still()) { el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 160 }); return; }
-      // the glass comes up over the key, so the key shows through it for the first few frames
-      el.animate([start, end], { duration: 380, easing: EASE });
-      el.animate([{ opacity: 0 }, { opacity: 1, offset: 0.22 }, { opacity: 1 }], { duration: 380, easing: "linear" });
-      b.animate([{ opacity: 0 }, { opacity: 0, offset: 0.3 }, { opacity: 1 }], { duration: 380, easing: "linear" });
+      flight.current = [
+        // the first frames show the key through the glass
+        el.animate([{ ...at, opacity: 0 }, { opacity: 1, offset: 0.12 }, { ...whole, opacity: 1 }], o),
+        sh.animate([{ ...small, opacity: 0 }, { opacity: 1, offset: 0.5 }, { ...full, opacity: 1 }], o),
+        b.animate([{ opacity: 0 }, { opacity: 0, offset: 0.4 }, { opacity: 1 }], o),
+      ];
     } else {
-      const done = () => setShown(false);
-      if (still()) { el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 140, fill: "forwards" }).onfinish = done; return; }
-      // the rows go first, then the glass settles onto the key and dissolves into it
-      b.animate([{ opacity: 1 }, { opacity: 0, offset: 0.22 }, { opacity: 0 }], { duration: 300, fill: "forwards" });
-      el.animate([{ opacity: 1 }, { opacity: 1, offset: 0.7 }, { opacity: 0 }], { duration: 300, easing: "linear", fill: "forwards" });
-      el.animate([end, start], { duration: 300, easing: EASE, fill: "forwards" }).onfinish = done;
+      const a = el.animate([{ ...whole, opacity: 1 }, { opacity: 1, offset: 0.6 }, { ...at, opacity: 0 }], o);
+      flight.current = [
+        a,
+        sh.animate([{ ...full, opacity: 1 }, { opacity: 0, offset: 0.6 }, { ...small, opacity: 0 }], o),
+        b.animate([{ opacity: 1 }, { opacity: 0, offset: 0.5 }, { opacity: 0 }], o),
+      ];
+      a.onfinish = () => { if (closing.current) setShown(false); };
     }
   }, [open, shown]);
 
@@ -167,7 +224,7 @@ export function WaitList({ open, stops, index, focus, phone, onFocus, onDone }: 
   };
   const fold = (s: Stop) => {
     setLeaving(s.id);
-    setTimeout(() => { setLeaving(null); setSent(null); onDone(s); }, 300);
+    setTimeout(() => { setLeaving(null); setSent(null); onDone(s); }, OPEN.ms);
   };
   useEffect(() => { if (!open) { setLeaving(null); setSent(null); } }, [open]);
 
@@ -183,15 +240,9 @@ export function WaitList({ open, stops, index, focus, phone, onFocus, onDone }: 
   if (!shown) return null;
   const fade = edges.up || edges.down ? `linear-gradient(to bottom, ${edges.up ? "transparent 0, black 20px" : "black 0"}, ${edges.down ? "black calc(100% - 20px), transparent 100%" : "black 100%"})` : undefined;
   return (
-    <div
-      ref={card}
-      data-waitlist
-      role="dialog"
-      aria-label="Waiting on you"
-      className="glass thick fixed z-40 overflow-hidden rounded-[24px]"
-      onPointerDown={(e) => e.stopPropagation()}
-      onKeyDown={walk}
-    >
+    <div ref={frame} data-waitlist role="dialog" aria-label="Waiting on you" className="fixed z-40" onPointerDown={(e) => e.stopPropagation()} onKeyDown={walk}>
+      <div ref={shade} aria-hidden className="pointer-events-none absolute inset-0 rounded-[24px]" style={{ boxShadow: SHADE }} />
+      <div ref={card} className="glass thick relative overflow-hidden rounded-[24px]" style={{ boxShadow: RIM }}>
       <div ref={body} onScroll={measure} onTransitionEnd={measure} className="overflow-y-auto p-2" style={{ maxHeight: `calc(100vh - ${phone ? 150 : 160}px)`, scrollbarWidth: "none", maskImage: fade, WebkitMaskImage: fade }}>
         {stops.map((s) => {
           const on = focus === s.id;
@@ -203,7 +254,7 @@ export function WaitList({ open, stops, index, focus, phone, onFocus, onDone }: 
           const inner = "";
           return (
             // folding away: the row's height and its words go together
-            <div key={s.id} className="grid transition-[grid-template-rows,opacity] duration-300" style={{ gridTemplateRows: leaving === s.id ? "0fr" : "1fr", opacity: leaving === s.id ? 0 : 1, transitionTimingFunction: EASE }}>
+            <div key={s.id} className="grid" style={{ gridTemplateRows: leaving === s.id ? "0fr" : "1fr", opacity: leaving === s.id ? 0 : 1, transition: `grid-template-rows ${OPEN.ms}ms ${OPEN.ease}, opacity 200ms ${EASE}` }}>
               <div className="min-h-0 overflow-hidden">
                 <div className="relative rounded-[16px] transition-colors duration-200" style={{ background: on ? "rgba(21,24,29,0.05)" : undefined }}>
                   <button
@@ -237,7 +288,7 @@ export function WaitList({ open, stops, index, focus, phone, onFocus, onDone }: 
                     <Glyph name="open" size={14} />
                   </a>
                   {/* its answers, opening under the question: one door, the other answer a quiet word beneath */}
-                  <div className="grid transition-[grid-template-rows] duration-300" style={{ gridTemplateRows: on ? "1fr" : "0fr", transitionTimingFunction: EASE }}>
+                  <div className="grid" style={{ gridTemplateRows: on ? "1fr" : "0fr", transition: `grid-template-rows ${OPEN.ms}ms ${OPEN.ease}` }}>
                     <div className="min-h-0 overflow-hidden">
                       <div className="relative pb-3 pt-1.5" style={{ opacity: on ? 1 : 0, transition: `opacity 200ms ${EASE} ${on ? "80ms" : "0ms"}` }}>
                         <div className="flex flex-col items-center transition-opacity duration-200" style={{ opacity: gone ? 0 : 1 }} aria-hidden={gone}>
@@ -268,6 +319,7 @@ export function WaitList({ open, stops, index, focus, phone, onFocus, onDone }: 
             </div>
           );
         })}
+      </div>
       </div>
     </div>
   );
