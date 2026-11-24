@@ -2,7 +2,6 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { clean, img, thumb, threadLink, when, type Page, type Thread } from "./data";
 import { COL_GAP, type Ask, type Cluster, type FileRow, type Group, type PlacedItem } from "./layout";
 import { Glyph } from "./glyphs";
-import { OPEN } from "./Waiting";
 
 const dayKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
@@ -61,12 +60,12 @@ function ActivityField({ threads, pages, days }: { threads: Thread[]; pages: Pag
   return <div className="relative" style={{ width: x - (PITCH - BLOCK), height: 3 * BLOCK + 6 }}>{cells}</div>;
 }
 
-export const ClusterView = memo(function ClusterView({ c, cap, far, near, live, dimmed, openKey, noted, fresh, threadsAll, onFocus, onHover, onOpen, onTitle, onFile, onSession, waitingOnly = false, onAsk }: {
+export const ClusterView = memo(function ClusterView({ c, cap, far, near, live, dimmed, openKey, noted, fresh, threadsAll, onFocus, onHover, onOpen, onTitle, onFile, onSession, onAsk }: {
   c: Cluster; cap: number; far: boolean; near: boolean; live: string; dimmed: boolean; openKey?: string;
   noted: Set<string>; fresh: Set<string>; threadsAll: Thread[];
   onFocus: (c: Cluster) => void; onHover: (key: string, on: boolean) => void; onOpen: (g: Group, i: number, el: HTMLElement) => void;
   onTitle: (g: Group) => boolean; onFile: (sheet: FilesSheet, i: number, el: HTMLElement) => void; onSession: (id: string) => void;
-  waitingOnly?: boolean; onAsk?: (id: string) => void; // the dock key's card is open; a mark was pressed
+  onAsk?: (id: string) => void; // a waiting screen's mark was pressed
 }) {
   const lit = useMemo(() => new Set(live.split(" ")), [live]);
   const projectThreads = useMemo(() => threadsAll.filter((t) => t.project === c.key), [threadsAll, c.key]);
@@ -74,8 +73,6 @@ export const ClusterView = memo(function ClusterView({ c, cap, far, near, live, 
   // writes --z on the name itself (wb-z), so this follows zoom with no render.
   // one size for every name: as large as the tightest column allows
   const size = `min(${cap}px, max(56px, calc(40px / var(--z, 1))))`;
-  // with the dock key's card open, what isn't waiting on you steps back
-  const waits = c.groups.some((g) => g.ask);
   return (
     <div
       style={{
@@ -85,7 +82,7 @@ export const ClusterView = memo(function ClusterView({ c, cap, far, near, live, 
       }}
     >
       <Layer>
-        <div data-flip={`c-${c.key}`} className="absolute" style={{ left: c.x, top: c.y, width: c.w, height: 96, ...away(waitingOnly && !waits) }}>
+        <div data-flip={`c-${c.key}`} className="absolute" style={{ left: c.x, top: c.y, width: c.w, height: 96 }}>
           <button
             className="wb-z type-project absolute bottom-0 left-[-3px] flex items-baseline whitespace-nowrap text-left"
             style={{ fontSize: size, maxWidth: c.w + COL_GAP * 0.6 }}
@@ -112,7 +109,6 @@ export const ClusterView = memo(function ClusterView({ c, cap, far, near, live, 
 
       {c.groups.map((g) => (
         <Layer key={g.id}>
-          <div style={away(waitingOnly && !g.ask)}>
           <GroupTitle g={g} far={far} colW={c.w} onTitle={onTitle} />
           {g.items.map((it, i) => (
             it.kind === "note"
@@ -128,7 +124,6 @@ export const ClusterView = memo(function ClusterView({ c, cap, far, near, live, 
             const taken = it.kind === "page" ? noted.has(it.page.id) : it.kind === "shot" && noted.has(`shot-${it.shot.hash}`);
             return <WaitMark id={g.ask.id} title={g.ask.title} x={it.x + it.dw - (taken ? 38 : 4)} y={it.y + 4} onAsk={onAsk} />;
           })()}
-          </div>
         </Layer>
       ))}
 
@@ -141,7 +136,7 @@ export const ClusterView = memo(function ClusterView({ c, cap, far, near, live, 
             rel="noreferrer"
             data-flip={`t-${t.id}`}
             className="group absolute flex items-center gap-2.5"
-            style={{ left: x, top: y, width: Math.min(c.w, 972), height: 40, opacity: far ? 0 : 1, pointerEvents: far ? "none" : "auto", transition: "opacity 240ms var(--ease-out)", ...(waitingOnly && !far ? away(true) : {}) }}
+            style={{ left: x, top: y, width: Math.min(c.w, 972), height: 40, opacity: far ? 0 : 1, pointerEvents: far ? "none" : "auto", transition: "opacity 240ms var(--ease-out)" }}
             onPointerDown={(e) => e.stopPropagation()}
           >
             <Glyph name="comment" size={15} className="shrink-0 text-[var(--quiet)] transition-colors duration-200 group-hover:text-[var(--ink)]" />
@@ -193,12 +188,6 @@ function WaitMark({ id, title, x, y, onAsk }: { id: string; title: string; x: nu
     </button>
   );
 }
-// stepping back while the dock key's card is open: there, but out of the way. Opacity alone: a blur on every
-// group is a filtered layer per group, which Safari pays for on every frame of a pan, and at 10%
-// the blur barely showed
-// It steps back on the card's own spring, so the two move as one.
-const away = (on: boolean): React.CSSProperties => ({ opacity: on ? 0.1 : 1, transition: `opacity ${OPEN.ms}ms ${OPEN.ease}` });
-
 // In Safari far out, each project's name, each group and each project's thread lines are a layer
 // of their own (styles.css says why). Anywhere else this div does nothing.
 function Layer({ children }: { children: React.ReactNode }) {

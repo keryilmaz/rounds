@@ -4,7 +4,7 @@
 // screen carries the mark too, on its corner, the way a note's badge does. A row (or a mark) opens
 // that session's answers under its question and brings its screens into view; an answer goes to
 // the session through the relay, and the row goes.
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { forwardRef, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { clean, img, thumb, threadLink, when, type Index } from "./data";
 import { Glyph } from "./glyphs";
 import type { Ask } from "./layout";
@@ -135,6 +135,44 @@ if (typeof window !== "undefined") {
 const SHADE = "0 24px 60px -24px rgba(40, 30, 15, 0.34), 0 6px 16px -8px rgba(40, 30, 15, 0.2)";
 const RIM = "inset 0 1px 0 rgba(255, 255, 255, 0.8), inset 0 -1px 0 rgba(255, 255, 255, 0.3), inset 0 0 14px rgba(255, 255, 255, 0.36), inset 0 -10px 18px -12px rgba(60, 45, 20, 0.12)";
 
+// While the card is open the canvas steps back under one sheet of the wall's own colour, cut away
+// where the waiting screens are. One element fading is all the canvas has to draw: fading its
+// groups one by one had Safari repaint the whole canvas every frame, and the card's motion with it.
+export type Hole = { x: number; y: number; w: number; h: number };
+export function veilPath(holes: Hole[], c: { x: number; y: number; z: number }) {
+  let d = `M0 0H${innerWidth}V${innerHeight}H0Z`;
+  for (const r of holes) {
+    // room for the mark on the corner and, far out, for the title held at its screen size above
+    const x = c.x + r.x * c.z - 18, y = c.y + r.y * c.z - 44, w = r.w * c.z + 36, h = r.h * c.z + 62;
+    const k = Math.min(18, w / 2, h / 2);
+    d += `M${x + k} ${y}H${x + w - k}A${k} ${k} 0 0 1 ${x + w} ${y + k}V${y + h - k}A${k} ${k} 0 0 1 ${x + w - k} ${y + h}H${x + k}A${k} ${k} 0 0 1 ${x} ${y + h - k}V${y + k}A${k} ${k} 0 0 1 ${x + k} ${y}Z`;
+  }
+  return d;
+}
+export const WaitVeil = forwardRef<SVGPathElement, { on: boolean }>(function WaitVeil({ on }, ref) {
+  const t = on ? OPEN : CLOSE;
+  return (
+    <svg aria-hidden className="pointer-events-none absolute inset-0 h-full w-full" style={{ opacity: on ? 1 : 0, transition: `opacity ${t.ms}ms ${t.ease}`, willChange: "opacity" }}>
+      <path ref={ref} fill="var(--wall)" fillOpacity={0.88} fillRule="evenodd" />
+    </svg>
+  );
+});
+
+// The rows' pictures, fetched and decoded before the card first opens, so opening never waits on them.
+export function useWarm(stops: Stop[], index: Index | null) {
+  const sig = stops.map((s) => s.id).join(" ");
+  useEffect(() => {
+    if (!index) return;
+    for (const s of stops) {
+      const url = pictureOf(index, s.id);
+      if (!url) continue;
+      const im = new Image();
+      im.src = url;
+      im.decode?.().catch(() => {});
+    }
+  }, [sig, index]);
+}
+
 /** Everything waiting on you, in a card that grows out of the dock's key and folds back into it. */
 export function WaitList({ open, stops, index, focus, phone, onFocus, onDone }: {
   open: boolean; stops: Stop[]; index: Index; focus: string | null; phone: boolean;
@@ -168,6 +206,7 @@ export function WaitList({ open, stops, index, focus, phone, onFocus, onDone }: 
       return;
     }
     closing.current = !open;
+    if (open) f.style.opacity = "";
     const box = listBox(phone);
     if (open) Object.assign(f.style, { left: `${box.left}px`, bottom: `${box.bottom}px`, width: `${box.w}px` });
     const F = f.getBoundingClientRect(), K = box.key;
@@ -205,6 +244,9 @@ export function WaitList({ open, stops, index, focus, phone, onFocus, onDone }: 
     }
   }, [open, shown]);
 
+  // hidden, nothing in it can take focus (React 18 has no inert prop)
+  useLayoutEffect(() => { frame.current?.toggleAttribute("inert", !shown); }, [shown]);
+
   // a list longer than the card fades at the edge it continues past, the way a scroll edge does;
   // measured again when a row finishes opening or folding
   const measure = () => {
@@ -237,12 +279,25 @@ export function WaitList({ open, stops, index, focus, phone, onFocus, onDone }: 
     if (next) { e.preventDefault(); next.focus(); next.scrollIntoView({ block: "nearest" }); }
   };
 
-  if (!shown) return null;
+  // Built once and kept, hidden, so a press only starts the motion: making the rows at the press
+  // cost Safari the first frames of it.
   const fade = edges.up || edges.down ? `linear-gradient(to bottom, ${edges.up ? "transparent 0, black 20px" : "black 0"}, ${edges.down ? "black calc(100% - 20px), transparent 100%" : "black 100%"})` : undefined;
   return (
-    <div ref={frame} data-waitlist role="dialog" aria-label="Waiting on you" className="fixed z-40" onPointerDown={(e) => e.stopPropagation()} onKeyDown={walk}>
-      <div ref={shade} aria-hidden className="pointer-events-none absolute inset-0 rounded-[24px]" style={{ boxShadow: SHADE }} />
-      <div ref={card} className="glass thick relative overflow-hidden rounded-[24px]" style={{ boxShadow: RIM }}>
+    <div
+      ref={frame}
+      data-waitlist
+      role="dialog"
+      aria-label="Waiting on you"
+      aria-hidden={!shown}
+      className="fixed z-40"
+      style={{ visibility: shown ? "visible" : "hidden" }}
+      onPointerDown={(e) => e.stopPropagation()}
+      onKeyDown={walk}
+    >
+      <div ref={shade} aria-hidden className="pointer-events-none absolute inset-0 rounded-[24px]" style={{ boxShadow: SHADE, willChange: "transform, opacity" }} />
+      {/* the glass without its backdrop blur: at this thickness the blur barely shows, and Safari
+          would redraw what's behind the card on every frame of its motion */}
+      <div ref={card} className="glass thick relative overflow-hidden rounded-[24px]" style={{ boxShadow: RIM, backdropFilter: "none", WebkitBackdropFilter: "none" }}>
       <div ref={body} onScroll={measure} onTransitionEnd={measure} className="overflow-y-auto p-2" style={{ maxHeight: `calc(100vh - ${phone ? 150 : 160}px)`, scrollbarWidth: "none", maskImage: fade, WebkitMaskImage: fade }}>
         {stops.map((s) => {
           const on = focus === s.id;

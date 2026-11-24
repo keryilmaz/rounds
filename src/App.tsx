@@ -14,7 +14,7 @@ import { TimeRail } from "./TimeRail";
 import { Search, type Hit } from "./Search";
 import { ShotStage, type ShotOpening } from "./ShotStage";
 import { Empty } from "./Empty";
-import { WaitKey, WaitList, listBox, narrow, useStops, useWaiting, type Stop } from "./Waiting";
+import { WaitKey, WaitList, WaitVeil, listBox, narrow, useStops, useWaiting, useWarm, veilPath, type Hole, type Stop } from "./Waiting";
 
 // The day in two tones: what you'd call it, then the date.
 function dayName(d: Date): [string, string] {
@@ -105,6 +105,11 @@ export default function App() {
   const wait = useWaiting(stops);
   const [listOpen, setListOpen] = useState(false);
   const [waitFocus, setWaitFocus] = useState<string | null>(null); // the row open in the card
+  // the veil the canvas steps back under while the card is open, cut away at the waiting screens
+  const veilEl = useRef<SVGPathElement>(null);
+  const holes = useRef<Hole[]>([]);
+  const veilOn = useRef(false);
+  veilOn.current = listOpen;
   const [far, setFar] = useState(true);
   const [near, setNear] = useState(false);
   const [view, setView] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
@@ -115,6 +120,7 @@ export default function App() {
   const settleT = useRef(0);
   const camera = useCamera((c, settled) => {
     camRef.current = c;
+    if (veilOn.current) placeVeil(c);
     const el = worldEl.current;
     if (el) {
       el.style.transform = `translate3d(${c.x}px, ${c.y}px, 0) scale(${c.z})`;
@@ -452,6 +458,10 @@ export default function App() {
     touched.current = true;
     camera.glide(groupView(g));
   };
+  function placeVeil(c: Cam) { veilEl.current?.setAttribute("d", veilPath(holes.current, c)); }
+  holes.current = useMemo(() => (world ? world.clusters.flatMap((c) => c.groups.filter((g) => g.ask).map((g) => ({ x: g.x, y: g.y, w: g.w, h: g.h }))) : []), [world]);
+  useLayoutEffect(() => { if (listOpen) placeVeil(camRef.current); }, [listOpen, world]);
+  useWarm(wait.waiting, index);
   // A row opened in the dock key's card (or a mark pressed on a screen) brings that session's
   // marked screens into the part of the window the card leaves free, and lights them
   const showWaiting = (id: string) => {
@@ -930,7 +940,6 @@ export default function App() {
             onTitle={onTitle}
             onFile={onFile}
             onSession={onSession}
-            waitingOnly={listOpen}
             onAsk={onAsk}
           />
         ))}
@@ -993,6 +1002,8 @@ export default function App() {
           transition: veiled ? "opacity 560ms cubic-bezier(0.3, 0.7, 0.1, 1)" : "opacity 420ms cubic-bezier(0.4, 0, 0.2, 1)",
         }}
       />
+
+      <WaitVeil ref={veilEl} on={listOpen && wait.waiting.length > 0} />
 
       {index && !index.sets.length && !index.pages.length && <Empty onImported={() => loadIndex().then(setIndex)} />}
       {!index && unreachable && (
