@@ -49,5 +49,16 @@ const file = path.join(os.tmpdir(), `rounds-${tag}.md`);
 fs.writeFileSync(file, notes + "\n");
 run("git", ["tag", "-a", tag, "-m", `Rounds ${version}`]);
 run("git", ["push", "origin", tag], { stdio: "inherit" });
-run("gh", ["release", "create", tag, "--repo", REPO, "--title", `Rounds ${version}`, "--notes-file", file, "--verify-tag"], { stdio: "inherit" });
+// GitHub can take a moment to see a tag it was just sent (--verify-tag fails until it does), so try a few times
+const publish = ["release", "create", tag, "--repo", REPO, "--title", `Rounds ${version}`, "--notes-file", file, "--verify-tag"];
+for (let i = 1; ; i++) {
+  try { run("gh", publish, { stdio: ["ignore", "inherit", "pipe"] }); break; }
+  catch (e) {
+    try { run("gh", ["release", "view", tag, "--repo", REPO]); break; } catch {} // it went through after all
+    const why = String(e.stderr || e.message).trim();
+    if (i === 5) stop(`${tag} is tagged and pushed, but GitHub didn't make the release:\n${why}\nTo finish it: gh ${publish.map((a) => (/\s/.test(a) ? `"${a}"` : a)).join(" ")}`);
+    console.log(`GitHub didn't make the release yet (${why.split("\n")[0]}). Trying again…`);
+    await new Promise((r) => setTimeout(r, 3000 * i));
+  }
+}
 console.log(`Released ${tag}. Copies opened with npx offer it within a day.`);
